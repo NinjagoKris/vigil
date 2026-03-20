@@ -30,7 +30,7 @@ export function buildAlertKeyboard(
   }
 
   kb.row();
-  kb.text("◀️ Back to Menu", "menu:main");
+  kb.text("◀️ Back to Menu", "m:main");
 
   return kb;
 }

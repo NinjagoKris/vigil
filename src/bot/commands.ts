@@ -1,6 +1,7 @@
 import { Bot, InlineKeyboard, type Context } from "grammy";
 import type { Queries } from "../db/queries.js";
 import type { ToncenterStream } from "../monitor/stream.js";
+import { getAccountInfo } from "../ton/client.js";
 import {
   formatStart,
   formatDashboard,
@@ -14,16 +15,17 @@ import {
 import { buildAlertKeyboard, handleAlertCallback } from "./alerts.js";
 
 // ─── KEYBOARD BUILDERS ──────────────────────────────
+// Short prefixes to stay under Telegram's 64-byte callback_data limit
 
 function mainMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("📊 Dashboard", "menu:dashboard")
-    .text("📋 My Agents", "menu:agents")
+    .text("📊 Dashboard", "m:dash")
+    .text("📋 My Agents", "m:list")
     .row()
-    .text("➕ Add Agent", "menu:watch")
-    .text("🔔 Alerts", "menu:alerts")
+    .text("➕ Add Agent", "m:watch")
+    .text("🔔 Alerts", "m:alerts")
     .row()
-    .text("🔄 Refresh", "menu:dashboard");
+    .text("🔄 Refresh", "m:dash");
 }
 
 function agentListKeyboard(
@@ -31,33 +33,30 @@ function agentListKeyboard(
 ): InlineKeyboard {
   const kb = new InlineKeyboard();
   for (const agent of agents) {
-    kb.text(
-      `${agent.name}`,
-      `agent:status:${agent.address}`
-    ).row();
+    kb.text(`${agent.name}`, `s:${agent.address}`).row();
   }
-  kb.text("➕ Add Agent", "menu:watch").row();
-  kb.text("◀️ Back to Menu", "menu:main");
+  kb.text("➕ Add Agent", "m:watch").row();
+  kb.text("◀️ Back to Menu", "m:main");
   return kb;
 }
 
 function agentDetailKeyboard(address: string): InlineKeyboard {
   return new InlineKeyboard()
-    .text("📜 History", `agent:history:${address}`)
-    .text("🔄 Refresh", `agent:status:${address}`)
+    .text("📜 History", `h:${address}`)
+    .text("🔄 Refresh", `s:${address}`)
     .row()
-    .text("🗑 Unwatch", `agent:unwatch:${address}`)
-    .text("◀️ Back", "menu:agents");
+    .text("🗑 Unwatch", `u:${address}`)
+    .text("◀️ Back", "m:list");
 }
 
 function backToAgentKeyboard(address: string): InlineKeyboard {
   return new InlineKeyboard()
-    .text("◀️ Back to Agent", `agent:status:${address}`)
-    .text("🏠 Menu", "menu:main");
+    .text("◀️ Back to Agent", `s:${address}`)
+    .text("🏠 Menu", "m:main");
 }
 
 function backToMenuKeyboard(): InlineKeyboard {
-  return new InlineKeyboard().text("🏠 Back to Menu", "menu:main");
+  return new InlineKeyboard().text("🏠 Back to Menu", "m:main");
 }
 
 function dashboardKeyboard(
@@ -65,19 +64,19 @@ function dashboardKeyboard(
 ): InlineKeyboard {
   const kb = new InlineKeyboard();
   for (const agent of agents) {
-    kb.text(`📍 ${agent.name}`, `agent:status:${agent.address}`).row();
+    kb.text(`📍 ${agent.name}`, `s:${agent.address}`).row();
   }
-  kb.text("🔄 Refresh", "menu:dashboard")
-    .text("➕ Add", "menu:watch")
+  kb.text("🔄 Refresh", "m:dash")
+    .text("➕ Add", "m:watch")
     .row();
-  kb.text("◀️ Menu", "menu:main");
+  kb.text("◀️ Menu", "m:main");
   return kb;
 }
 
 function unwatchConfirmKeyboard(address: string): InlineKeyboard {
   return new InlineKeyboard()
-    .text("✅ Yes, remove", `agent:unwatch_confirm:${address}`)
-    .text("❌ Cancel", `agent:status:${address}`);
+    .text("✅ Yes, remove", `uc:${address}`)
+    .text("❌ Cancel", `s:${address}`);
 }
 
 // ─── HELPERS ─────────────────────────────────────────
@@ -109,6 +108,28 @@ async function sendOrEdit(
   }
 }
 
+async function addAgentWithBalance(
+  queries: Queries,
+  stream: ToncenterStream,
+  userId: number,
+  address: string,
+  name: string
+): Promise<void> {
+  queries.addAgent(userId, address, name);
+  stream.subscribe([address]);
+
+  // Fetch initial balance + last_activity
+  try {
+    const info = await getAccountInfo(address);
+    queries.updateBalance(address, info.balance);
+    if (info.last_activity) {
+      queries.updateLastActive(address, info.last_activity);
+    }
+  } catch (err) {
+    console.error(`[Watch] Failed to fetch initial balance for ${address}:`, err);
+  }
+}
+
 // ─── REGISTER ────────────────────────────────────────
 
 export function registerCommands(
@@ -137,10 +158,7 @@ export function registerCommands(
         ].join("\n"),
         {
           parse_mode: "HTML",
-          reply_markup: new InlineKeyboard().text(
-            "❌ Cancel",
-            "menu:main"
-          ),
+          reply_markup: new InlineKeyboard().text("❌ Cancel", "m:main"),
         }
       );
       return;
@@ -156,16 +174,39 @@ export function registerCommands(
       return;
     }
 
-    queries.addAgent(userId, address, name);
-    stream.subscribe([address]);
+    // Check if it's a wallet
+    try {
+      const info = await getAccountInfo(address);
+      if (!info.is_wallet) {
+        await ctx.reply(
+          [
+            `⚠️ <b>Warning:</b> This address doesn't look like a wallet.`,
+            `It may be an exchange, pool, or contract with very high traffic.`,
+            ``,
+            `Are you sure you want to monitor it?`,
+          ].join("\n"),
+          {
+            parse_mode: "HTML",
+            reply_markup: new InlineKeyboard()
+              .text("✅ Add anyway", `fw:${address}:${name}`)
+              .text("❌ Cancel", "m:main"),
+          }
+        );
+        return;
+      }
+    } catch {
+      // If check fails, allow adding anyway
+    }
+
+    await addAgentWithBalance(queries, stream, userId, address, name);
 
     await sendOrEdit(
       ctx,
       formatWatchSuccess(name, address),
       new InlineKeyboard()
-        .text("📊 View Status", `agent:status:${address}`)
+        .text("📊 View Status", `s:${address}`)
         .row()
-        .text("🏠 Menu", "menu:main")
+        .text("🏠 Menu", "m:main")
     );
   });
 
@@ -176,7 +217,6 @@ export function registerCommands(
 
     const args = ctx.message?.text?.split(/\s+/).slice(1) || [];
     if (args.length < 1) {
-      // Show agent list to pick
       const agents = queries.getAgentsByUser(userId);
       if (agents.length === 0) {
         await ctx.reply("No agents to remove.", {
@@ -186,12 +226,9 @@ export function registerCommands(
       }
       const kb = new InlineKeyboard();
       for (const a of agents) {
-        kb.text(
-          `🗑 ${a.name}`,
-          `agent:unwatch:${a.address}`
-        ).row();
+        kb.text(`🗑 ${a.name}`, `u:${a.address}`).row();
       }
-      kb.text("❌ Cancel", "menu:main");
+      kb.text("❌ Cancel", "m:main");
       await ctx.reply("<b>Select agent to remove:</b>", {
         parse_mode: "HTML",
         reply_markup: kb,
@@ -243,9 +280,9 @@ export function registerCommands(
       const agents = queries.getAgentsByUser(userId);
       const kb = new InlineKeyboard();
       for (const a of agents) {
-        kb.text(a.name, `agent:status:${a.address}`).row();
+        kb.text(a.name, `s:${a.address}`).row();
       }
-      kb.text("◀️ Menu", "menu:main");
+      kb.text("◀️ Menu", "m:main");
       await ctx.reply("<b>Select agent:</b>", {
         parse_mode: "HTML",
         reply_markup: kb,
@@ -269,7 +306,7 @@ export function registerCommands(
     const agents = queries.getAgentsByUser(userId);
     if (agents.length === 0) {
       await ctx.reply("Add an agent first to configure alerts.", {
-        reply_markup: new InlineKeyboard().text("➕ Add Agent", "menu:watch"),
+        reply_markup: new InlineKeyboard().text("➕ Add Agent", "m:watch"),
       });
       return;
     }
@@ -291,9 +328,9 @@ export function registerCommands(
       const agents = queries.getAgentsByUser(userId);
       const kb = new InlineKeyboard();
       for (const a of agents) {
-        kb.text(`📜 ${a.name}`, `agent:history:${a.address}`).row();
+        kb.text(`📜 ${a.name}`, `h:${a.address}`).row();
       }
-      kb.text("◀️ Menu", "menu:main");
+      kb.text("◀️ Menu", "m:main");
       await ctx.reply("<b>Select agent:</b>", {
         parse_mode: "HTML",
         reply_markup: kb,
@@ -314,17 +351,15 @@ export function registerCommands(
   });
 
   // ═══════════════════════════════════════════════════
-  // CALLBACK QUERY HANDLERS (inline buttons)
+  // CALLBACK QUERY HANDLERS
   // ═══════════════════════════════════════════════════
 
-  // ── Main menu ────────────────────────────────────
-  bot.callbackQuery("menu:main", async (ctx) => {
+  bot.callbackQuery("m:main", async (ctx) => {
     await sendOrEdit(ctx, formatStart(), mainMenuKeyboard());
     await ctx.answerCallbackQuery();
   });
 
-  // ── Dashboard ────────────────────────────────────
-  bot.callbackQuery("menu:dashboard", async (ctx) => {
+  bot.callbackQuery("m:dash", async (ctx) => {
     const userId = ctx.from?.id;
     if (!userId) return;
     const agents = queries.getAgentsByUser(userId);
@@ -334,8 +369,7 @@ export function registerCommands(
     await ctx.answerCallbackQuery();
   });
 
-  // ── Agent list ───────────────────────────────────
-  bot.callbackQuery("menu:agents", async (ctx) => {
+  bot.callbackQuery("m:list", async (ctx) => {
     const userId = ctx.from?.id;
     if (!userId) return;
     const agents = queries.getAgentsByUser(userId);
@@ -343,8 +377,7 @@ export function registerCommands(
     await ctx.answerCallbackQuery();
   });
 
-  // ── Add agent prompt ─────────────────────────────
-  bot.callbackQuery("menu:watch", async (ctx) => {
+  bot.callbackQuery("m:watch", async (ctx) => {
     const userId = ctx.from?.id;
     if (!userId) return;
     waitingForAddress.set(userId, { state: "address" });
@@ -357,13 +390,12 @@ export function registerCommands(
         ``,
         `<i>Example: EQBCVd...v_br</i>`,
       ].join("\n"),
-      new InlineKeyboard().text("❌ Cancel", "menu:main")
+      new InlineKeyboard().text("❌ Cancel", "m:main")
     );
     await ctx.answerCallbackQuery();
   });
 
-  // ── Alerts ───────────────────────────────────────
-  bot.callbackQuery("menu:alerts", async (ctx) => {
+  bot.callbackQuery("m:alerts", async (ctx) => {
     const userId = ctx.from?.id;
     if (!userId) return;
     const agents = queries.getAgentsByUser(userId);
@@ -372,9 +404,9 @@ export function registerCommands(
         ctx,
         "Add an agent first to configure alerts.",
         new InlineKeyboard()
-          .text("➕ Add Agent", "menu:watch")
+          .text("➕ Add Agent", "m:watch")
           .row()
-          .text("◀️ Menu", "menu:main")
+          .text("◀️ Menu", "m:main")
       );
       await ctx.answerCallbackQuery();
       return;
@@ -386,7 +418,6 @@ export function registerCommands(
     await ctx.answerCallbackQuery();
   });
 
-  // ── Toggle alert ─────────────────────────────────
   bot.callbackQuery(/^toggle_alert:(.+)$/, async (ctx) => {
     const userId = ctx.from?.id;
     if (!userId) return;
@@ -396,8 +427,8 @@ export function registerCommands(
     await ctx.answerCallbackQuery();
   });
 
-  // ── Agent status ─────────────────────────────────
-  bot.callbackQuery(/^agent:status:(.+)$/, async (ctx) => {
+  // ── Agent status (s:ADDRESS) ─────────────────────
+  bot.callbackQuery(/^s:(.+)$/, async (ctx) => {
     const userId = ctx.from?.id;
     if (!userId) return;
     const address = ctx.match[1];
@@ -412,8 +443,8 @@ export function registerCommands(
     await ctx.answerCallbackQuery();
   });
 
-  // ── Agent history ────────────────────────────────
-  bot.callbackQuery(/^agent:history:(.+)$/, async (ctx) => {
+  // ── Agent history (h:ADDRESS) ────────────────────
+  bot.callbackQuery(/^h:(.+)$/, async (ctx) => {
     const userId = ctx.from?.id;
     if (!userId) return;
     const address = ctx.match[1];
@@ -427,8 +458,8 @@ export function registerCommands(
     await ctx.answerCallbackQuery();
   });
 
-  // ── Unwatch — confirmation step ──────────────────
-  bot.callbackQuery(/^agent:unwatch:(.+)$/, async (ctx) => {
+  // ── Unwatch step 1 (u:ADDRESS) ───────────────────
+  bot.callbackQuery(/^u:(.+)$/, async (ctx) => {
     const userId = ctx.from?.id;
     if (!userId) return;
     const address = ctx.match[1];
@@ -450,8 +481,8 @@ export function registerCommands(
     await ctx.answerCallbackQuery();
   });
 
-  // ── Unwatch — confirmed ──────────────────────────
-  bot.callbackQuery(/^agent:unwatch_confirm:(.+)$/, async (ctx) => {
+  // ── Unwatch confirmed (uc:ADDRESS) ───────────────
+  bot.callbackQuery(/^uc:(.+)$/, async (ctx) => {
     const userId = ctx.from?.id;
     if (!userId) return;
     const address = ctx.match[1];
@@ -466,6 +497,26 @@ export function registerCommands(
     await ctx.answerCallbackQuery({ text: "Agent removed" });
   });
 
+  // ── Force watch non-wallet (fw:ADDRESS:NAME) ─────
+  bot.callbackQuery(/^fw:(.+):(.+)$/, async (ctx) => {
+    const userId = ctx.from?.id;
+    if (!userId) return;
+    const address = ctx.match[1];
+    const name = ctx.match[2];
+
+    await addAgentWithBalance(queries, stream, userId, address, name);
+
+    await sendOrEdit(
+      ctx,
+      formatWatchSuccess(name, address),
+      new InlineKeyboard()
+        .text("📊 View Status", `s:${address}`)
+        .row()
+        .text("🏠 Menu", "m:main")
+    );
+    await ctx.answerCallbackQuery();
+  });
+
   // ═══════════════════════════════════════════════════
   // TEXT HANDLER — for interactive /watch flow
   // ═══════════════════════════════════════════════════
@@ -475,11 +526,9 @@ export function registerCommands(
     if (!userId) return;
 
     const waiting = waitingForAddress.get(userId);
-    if (!waiting) return; // Not in any flow
+    if (!waiting) return;
 
     const text = ctx.message.text.trim();
-
-    // Skip if it looks like a command
     if (text.startsWith("/")) return;
 
     if (waiting.state === "address") {
@@ -494,10 +543,35 @@ export function registerCommands(
           ].join("\n"),
           {
             parse_mode: "HTML",
-            reply_markup: new InlineKeyboard().text("❌ Cancel", "menu:main"),
+            reply_markup: new InlineKeyboard().text("❌ Cancel", "m:main"),
           }
         );
         return;
+      }
+
+      // Check if it's a wallet
+      try {
+        const info = await getAccountInfo(text);
+        if (!info.is_wallet) {
+          waitingForAddress.delete(userId);
+          await ctx.reply(
+            [
+              `⚠️ <b>Warning:</b> This doesn't look like a wallet.`,
+              `It may be an exchange or contract with high traffic.`,
+              ``,
+              `Send a wallet address, or tap Add anyway.`,
+            ].join("\n"),
+            {
+              parse_mode: "HTML",
+              reply_markup: new InlineKeyboard()
+                .text("✅ Add anyway", `fwa:${text}`)
+                .text("❌ Cancel", "m:main"),
+            }
+          );
+          return;
+        }
+      } catch {
+        // If check fails, continue
       }
 
       waitingForAddress.set(userId, { state: "name", address: text });
@@ -512,7 +586,7 @@ export function registerCommands(
         ].join("\n"),
         {
           parse_mode: "HTML",
-          reply_markup: new InlineKeyboard().text("❌ Cancel", "menu:main"),
+          reply_markup: new InlineKeyboard().text("❌ Cancel", "m:main"),
         }
       );
       return;
@@ -524,16 +598,34 @@ export function registerCommands(
 
       waitingForAddress.delete(userId);
 
-      queries.addAgent(userId, address, name);
-      stream.subscribe([address]);
+      await addAgentWithBalance(queries, stream, userId, address, name);
 
       await ctx.reply(formatWatchSuccess(name, address), {
         parse_mode: "HTML",
         reply_markup: new InlineKeyboard()
-          .text("📊 View Status", `agent:status:${address}`)
+          .text("📊 View Status", `s:${address}`)
           .row()
-          .text("🏠 Menu", "menu:main"),
+          .text("🏠 Menu", "m:main"),
       });
     }
+  });
+
+  // ── Force watch from interactive flow (fwa:ADDRESS) ──
+  bot.callbackQuery(/^fwa:(.+)$/, async (ctx) => {
+    const userId = ctx.from?.id;
+    if (!userId) return;
+    const address = ctx.match[1];
+    waitingForAddress.set(userId, { state: "name", address });
+    await sendOrEdit(
+      ctx,
+      [
+        `✅ Address accepted`,
+        `<code>${shortAddress(address)}</code>`,
+        ``,
+        `Now send me a <b>name</b> for this agent:`,
+      ].join("\n"),
+      new InlineKeyboard().text("❌ Cancel", "m:main")
+    );
+    await ctx.answerCallbackQuery();
   });
 }
