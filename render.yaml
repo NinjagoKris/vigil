@@ -1,0 +1,15 @@
+services:
+  - type: worker
+    name: vigil-bot
+    runtime: docker
+    repo: https://github.com/NinjagoKris/vigil
+    branch: master
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: TONCENTER_API_KEY
+        sync: false
+      - key: TONCENTER_WS_URL
+        value: wss://toncenter.com/api/streaming/v2/ws
+      - key: TONCENTER_HTTP_URL
+        value: https://toncenter.com/api/v3
