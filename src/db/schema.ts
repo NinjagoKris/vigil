@@ -46,7 +46,16 @@ export function initDatabase(dbPath: string = "vigil.db"): Database.Database {
       first_seen INTEGER NOT NULL DEFAULT (unixepoch()),
       UNIQUE(agent_address, contract_address)
     );
+  `);
 
+  // Migration: add raw_address column if missing (existing databases)
+  const columns = db.pragma("table_info(agents)") as Array<{ name: string }>;
+  if (!columns.some((c) => c.name === "raw_address")) {
+    db.exec("ALTER TABLE agents ADD COLUMN raw_address TEXT");
+  }
+
+  // Create indexes after migrations
+  db.exec(`
     CREATE INDEX IF NOT EXISTS idx_agents_user ON agents(user_id);
     CREATE INDEX IF NOT EXISTS idx_agents_address ON agents(address);
     CREATE INDEX IF NOT EXISTS idx_agents_raw_address ON agents(raw_address);
@@ -54,12 +63,6 @@ export function initDatabase(dbPath: string = "vigil.db"): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_tx_timestamp ON transactions(timestamp);
     CREATE INDEX IF NOT EXISTS idx_known_agent ON known_contracts(agent_address);
   `);
-
-  // Migration: add raw_address column if it doesn't exist (for existing databases)
-  const columns = db.pragma("table_info(agents)") as Array<{ name: string }>;
-  if (!columns.some((c) => c.name === "raw_address")) {
-    db.exec("ALTER TABLE agents ADD COLUMN raw_address TEXT");
-  }
 
   return db;
 }

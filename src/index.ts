@@ -23,6 +23,9 @@ const queries = new Queries(db);
 
 // Init Telegram bot
 const bot = new Bot(BOT_TOKEN);
+bot.catch((err) => {
+  console.error("[Bot] Error:", err.message || err);
+});
 
 // Init WebSocket stream
 const stream = new ToncenterStream({
