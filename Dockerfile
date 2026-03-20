@@ -10,4 +10,6 @@ RUN npm ci --omit=dev
 COPY src ./src
 COPY tsconfig.json ./
 
+EXPOSE 7860
+
 CMD ["npx", "tsx", "src/index.ts"]

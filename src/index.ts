@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { createServer } from "http";
 import { Bot } from "grammy";
 import { initDatabase } from "./db/schema.js";
 import { Queries } from "./db/queries.js";
@@ -98,6 +99,15 @@ stream.on("balance", (address: string, balanceNano: string) => {
 
 // Start inactivity checker (runs every hour, with dedup)
 const inactivityTimer = startInactivityChecker(bot, queries);
+
+// ── Health check server (for platforms like HF Spaces) ──
+const PORT = parseInt(process.env.PORT || "7860", 10);
+createServer((_req, res) => {
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("Vigil is running");
+}).listen(PORT, () => {
+  console.log(`[Health] Listening on port ${PORT}`);
+});
 
 // ── Start everything ────────────────────────────────
 async function main(): Promise<void> {
