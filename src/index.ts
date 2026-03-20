@@ -1,6 +1,6 @@
 import "dotenv/config";
-import { createServer } from "http";
-import { Bot } from "grammy";
+import { createServer, type IncomingMessage, type ServerResponse } from "http";
+import { Bot, webhookCallback } from "grammy";
 import { initDatabase } from "./db/schema.js";
 import { Queries } from "./db/queries.js";
 import { ToncenterStream } from "./monitor/stream.js";
@@ -16,6 +16,9 @@ if (!BOT_TOKEN) {
   console.error("BOT_TOKEN is required. Set it in .env file.");
   process.exit(1);
 }
+
+// Webhook URL for cloud deployment (e.g. HF Spaces)
+const WEBHOOK_URL = process.env.WEBHOOK_URL || "";
 
 // Init database
 const db = initDatabase();
@@ -42,7 +45,6 @@ const analyzer = new TransactionAnalyzer(queries);
 registerCommands(bot, queries, stream);
 
 // ── Rate-limited alert sender ───────────────────────
-// Simple queue to avoid Telegram 429 (max ~30 msg/sec)
 const alertQueue: Array<{ userId: number; message: string }> = [];
 let alertDraining = false;
 
@@ -58,19 +60,19 @@ async function drainAlertQueue(): Promise<void> {
     try {
       await bot.api.sendMessage(item.userId, item.message, {
         parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
       });
     } catch (err: unknown) {
       const error = err as { error_code?: number; parameters?: { retry_after?: number } };
       if (error.error_code === 429) {
         const retryAfter = error.parameters?.retry_after || 1;
         console.warn(`[Alert] Rate limited, waiting ${retryAfter}s`);
-        alertQueue.unshift(item); // put it back
+        alertQueue.unshift(item);
         await new Promise((r) => setTimeout(r, retryAfter * 1000));
         continue;
       }
       console.error(`[Alert] Failed to send to user ${item.userId}:`, err);
     }
-    // Small delay between messages to stay under limits
     await new Promise((r) => setTimeout(r, 35));
   }
   alertDraining = false;
@@ -103,15 +105,6 @@ stream.on("balance", (address: string, balanceNano: string) => {
 // Start inactivity checker (runs every hour, with dedup)
 const inactivityTimer = startInactivityChecker(bot, queries);
 
-// ── Health check server (for platforms like HF Spaces) ──
-const PORT = parseInt(process.env.PORT || "7860", 10);
-createServer((_req, res) => {
-  res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("Vigil is running");
-}).listen(PORT, () => {
-  console.log(`[Health] Listening on port ${PORT}`);
-});
-
 // ── Start everything ────────────────────────────────
 async function main(): Promise<void> {
   console.log("Starting Vigil...");
@@ -126,13 +119,45 @@ async function main(): Promise<void> {
   // Connect WebSocket
   stream.connect();
 
-  // Start bot with drop_pending_updates to avoid conflicts
-  bot.start({
-    drop_pending_updates: true,
-    onStart: () => {
+  if (WEBHOOK_URL) {
+    // ── Webhook mode (for HF Spaces / cloud) ──────────
+    const handleUpdate = webhookCallback(bot, "http");
+
+    const PORT = parseInt(process.env.PORT || "7860", 10);
+    createServer(async (req: IncomingMessage, res: ServerResponse) => {
+      if (req.method === "POST" && req.url === "/webhook") {
+        await handleUpdate(req, res);
+      } else {
+        res.writeHead(200, { "Content-Type": "text/plain" });
+        res.end("Vigil is running");
+      }
+    }).listen(PORT, async () => {
+      console.log(`[Server] Listening on port ${PORT}`);
+
+      // Set webhook at Telegram
+      await bot.api.setWebhook(`${WEBHOOK_URL}/webhook`, {
+        drop_pending_updates: true,
+      });
+      console.log(`[Bot] Webhook set to ${WEBHOOK_URL}/webhook`);
       console.log("[Bot] Vigil is online. Never sleep on your agents.");
-    },
-  });
+    });
+  } else {
+    // ── Polling mode (local dev) ──────────────────────
+    const PORT = parseInt(process.env.PORT || "7860", 10);
+    createServer((_req, res) => {
+      res.writeHead(200, { "Content-Type": "text/plain" });
+      res.end("Vigil is running");
+    }).listen(PORT, () => {
+      console.log(`[Health] Listening on port ${PORT}`);
+    });
+
+    bot.start({
+      drop_pending_updates: true,
+      onStart: () => {
+        console.log("[Bot] Vigil is online. Never sleep on your agents.");
+      },
+    });
+  }
 }
 
 main().catch((err) => {
