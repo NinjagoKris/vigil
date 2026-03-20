@@ -1,6 +1,6 @@
 import "dotenv/config";
-import { createServer, type IncomingMessage, type ServerResponse } from "http";
-import { Bot, webhookCallback } from "grammy";
+import { createServer } from "http";
+import { Bot } from "grammy";
 import { initDatabase } from "./db/schema.js";
 import { Queries } from "./db/queries.js";
 import { ToncenterStream } from "./monitor/stream.js";
@@ -16,9 +16,6 @@ if (!BOT_TOKEN) {
   console.error("BOT_TOKEN is required. Set it in .env file.");
   process.exit(1);
 }
-
-// Webhook URL for cloud deployment (e.g. HF Spaces)
-const WEBHOOK_URL = process.env.WEBHOOK_URL || "";
 
 // Init database
 const db = initDatabase();
@@ -105,6 +102,15 @@ stream.on("balance", (address: string, balanceNano: string) => {
 // Start inactivity checker (runs every hour, with dedup)
 const inactivityTimer = startInactivityChecker(bot, queries);
 
+// ── Health check server ─────────────────────────────
+const PORT = parseInt(process.env.PORT || "7860", 10);
+createServer((_req, res) => {
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("Vigil is running");
+}).listen(PORT, () => {
+  console.log(`[Health] Listening on port ${PORT}`);
+});
+
 // ── Start everything ────────────────────────────────
 async function main(): Promise<void> {
   console.log("Starting Vigil...");
@@ -119,45 +125,13 @@ async function main(): Promise<void> {
   // Connect WebSocket
   stream.connect();
 
-  if (WEBHOOK_URL) {
-    // ── Webhook mode (for HF Spaces / cloud) ──────────
-    const handleUpdate = webhookCallback(bot, "http");
-
-    const PORT = parseInt(process.env.PORT || "7860", 10);
-    createServer(async (req: IncomingMessage, res: ServerResponse) => {
-      if (req.method === "POST" && req.url === "/webhook") {
-        await handleUpdate(req, res);
-      } else {
-        res.writeHead(200, { "Content-Type": "text/plain" });
-        res.end("Vigil is running");
-      }
-    }).listen(PORT, async () => {
-      console.log(`[Server] Listening on port ${PORT}`);
-
-      // Set webhook at Telegram
-      await bot.api.setWebhook(`${WEBHOOK_URL}/webhook`, {
-        drop_pending_updates: true,
-      });
-      console.log(`[Bot] Webhook set to ${WEBHOOK_URL}/webhook`);
+  // Start bot
+  bot.start({
+    drop_pending_updates: true,
+    onStart: () => {
       console.log("[Bot] Vigil is online. Never sleep on your agents.");
-    });
-  } else {
-    // ── Polling mode (local dev) ──────────────────────
-    const PORT = parseInt(process.env.PORT || "7860", 10);
-    createServer((_req, res) => {
-      res.writeHead(200, { "Content-Type": "text/plain" });
-      res.end("Vigil is running");
-    }).listen(PORT, () => {
-      console.log(`[Health] Listening on port ${PORT}`);
-    });
-
-    bot.start({
-      drop_pending_updates: true,
-      onStart: () => {
-        console.log("[Bot] Vigil is online. Never sleep on your agents.");
-      },
-    });
-  }
+    },
+  });
 }
 
 main().catch((err) => {
