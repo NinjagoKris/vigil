@@ -273,15 +273,12 @@ export function registerCommands(
       });
       return;
     }
+    queries.ensureAlertSettings(userId);
     const settings = queries.getAlertSettings(userId);
-    if (settings.length === 0) {
-      queries.addAgent(userId, agents[0].address, agents[0].name);
-    }
-    const freshSettings = queries.getAlertSettings(userId);
     await sendOrEdit(
       ctx,
-      (await import("./formatters.js")).formatAlertSettings(freshSettings),
-      buildAlertKeyboard(freshSettings)
+      (await import("./formatters.js")).formatAlertSettings(settings),
+      buildAlertKeyboard(settings)
     );
   });
 
@@ -382,11 +379,8 @@ export function registerCommands(
       await ctx.answerCallbackQuery();
       return;
     }
-    let settings = queries.getAlertSettings(userId);
-    if (settings.length === 0) {
-      queries.addAgent(userId, agents[0].address, agents[0].name);
-      settings = queries.getAlertSettings(userId);
-    }
+    queries.ensureAlertSettings(userId);
+    const settings = queries.getAlertSettings(userId);
     const { formatAlertSettings } = await import("./formatters.js");
     await sendOrEdit(ctx, formatAlertSettings(settings), buildAlertKeyboard(settings));
     await ctx.answerCallbackQuery();

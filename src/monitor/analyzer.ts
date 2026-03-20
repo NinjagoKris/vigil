@@ -2,8 +2,13 @@ import type { Queries } from "../db/queries.js";
 import type { ToncenterTransaction } from "./stream.js";
 import { evaluateAllRules, type Alert, type AlertContext } from "./rules.js";
 import { getAccountBalance } from "../ton/client.js";
+import { clearInactivityAlert } from "./inactivity.js";
 
 export class TransactionAnalyzer {
+  // Track addresses that received a balance via WebSocket recently
+  // so we skip the redundant HTTP call
+  private wsBalanceReceived = new Set<string>();
+
   constructor(private queries: Queries) {}
 
   async processTransaction(
@@ -17,7 +22,7 @@ export class TransactionAnalyzer {
     }
 
     // Determine direction and counterparty
-    const { direction, counterparty, amount } = this.parseTxDetails(tx, address);
+    const { direction, counterparty, amount } = parseTxDetails(tx, address);
 
     // Store transaction
     const isNew = this.queries.addTransaction(
@@ -37,19 +42,27 @@ export class TransactionAnalyzer {
     // Update last active
     this.queries.updateLastActive(address, tx.now);
 
+    // Clear inactivity dedup for all watchers
+    for (const uid of userIds) {
+      clearInactivityAlert(uid, address);
+    }
+
     // Track known contracts
     let isNewContract = false;
     if (counterparty) {
       isNewContract = this.queries.addKnownContract(address, counterparty);
     }
 
-    // Fetch updated balance
-    try {
-      const balance = await getAccountBalance(address);
-      this.queries.updateBalance(address, balance);
-    } catch (err) {
-      console.error(`[Analyzer] Failed to fetch balance for ${address}:`, err);
+    // Fetch balance only if WebSocket hasn't provided it recently
+    if (!this.wsBalanceReceived.has(address)) {
+      try {
+        const balance = await getAccountBalance(address);
+        this.queries.updateBalance(address, balance);
+      } catch (err) {
+        console.error(`[Analyzer] Failed to fetch balance for ${address}:`, err);
+      }
     }
+    this.wsBalanceReceived.delete(address);
 
     // Evaluate alert rules for each watching user
     const allAlerts: Alert[] = [];
@@ -62,7 +75,6 @@ export class TransactionAnalyzer {
 
       const settings = this.queries.getAlertSettings(userId);
       const balanceChange = this.queries.getBalanceOneHourAgo(address);
-
       const txRecord = this.queries.getTransactions(address, 1)[0];
 
       const ctx: AlertContext = {
@@ -84,18 +96,8 @@ export class TransactionAnalyzer {
   }
 
   handleBalanceUpdate(address: string, balanceNano: string): void {
+    this.wsBalanceReceived.add(address);
     this.queries.updateBalance(address, balanceNano);
-  }
-
-  parseTxDetails(
-    tx: ToncenterTransaction,
-    watchedAddress: string
-  ): {
-    direction: "in" | "out";
-    counterparty: string | null;
-    amount: string;
-  } {
-    return parseTxDetails(tx, watchedAddress);
   }
 }
 

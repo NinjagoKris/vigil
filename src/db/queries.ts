@@ -162,6 +162,16 @@ export class Queries {
     return row;
   }
 
+  ensureAlertSettings(userId: number): void {
+    for (const alert of Object.values(ALERT_TYPES)) {
+      this.db
+        .prepare(
+          "INSERT OR IGNORE INTO alert_settings (user_id, alert_type, enabled, threshold) VALUES (?, ?, 1, ?)"
+        )
+        .run(userId, alert.type, alert.defaultThreshold);
+    }
+  }
+
   getAlertSettings(userId: number): AlertSetting[] {
     return this.db
       .prepare(

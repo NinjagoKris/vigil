@@ -4,6 +4,7 @@ import { initDatabase } from "./db/schema.js";
 import { Queries } from "./db/queries.js";
 import { ToncenterStream } from "./monitor/stream.js";
 import { TransactionAnalyzer } from "./monitor/analyzer.js";
+import { startInactivityChecker } from "./monitor/inactivity.js";
 import { registerCommands } from "./bot/commands.js";
 import { formatAlert } from "./bot/formatters.js";
 import type { ToncenterTransaction } from "./monitor/stream.js";
@@ -36,27 +37,52 @@ const analyzer = new TransactionAnalyzer(queries);
 // Register bot commands
 registerCommands(bot, queries, stream);
 
-// Handle incoming transactions from WebSocket
+// ── Rate-limited alert sender ───────────────────────
+// Simple queue to avoid Telegram 429 (max ~30 msg/sec)
+const alertQueue: Array<{ userId: number; message: string }> = [];
+let alertDraining = false;
+
+function enqueueAlert(userId: number, message: string): void {
+  alertQueue.push({ userId, message });
+  if (!alertDraining) drainAlertQueue();
+}
+
+async function drainAlertQueue(): Promise<void> {
+  alertDraining = true;
+  while (alertQueue.length > 0) {
+    const item = alertQueue.shift()!;
+    try {
+      await bot.api.sendMessage(item.userId, item.message, {
+        parse_mode: "HTML",
+      });
+    } catch (err: unknown) {
+      const error = err as { error_code?: number; parameters?: { retry_after?: number } };
+      if (error.error_code === 429) {
+        const retryAfter = error.parameters?.retry_after || 1;
+        console.warn(`[Alert] Rate limited, waiting ${retryAfter}s`);
+        alertQueue.unshift(item); // put it back
+        await new Promise((r) => setTimeout(r, retryAfter * 1000));
+        continue;
+      }
+      console.error(`[Alert] Failed to send to user ${item.userId}:`, err);
+    }
+    // Small delay between messages to stay under limits
+    await new Promise((r) => setTimeout(r, 35));
+  }
+  alertDraining = false;
+}
+
+// ── Handle incoming transactions from WebSocket ─────
 stream.on(
   "transaction",
   async (tx: ToncenterTransaction, _finality: string) => {
     try {
       const { alerts, userIds } = await analyzer.processTransaction(tx);
 
-      // Send alerts to all watching users
       for (const alert of alerts) {
         const message = formatAlert(alert);
         for (const userId of userIds) {
-          try {
-            await bot.api.sendMessage(userId, message, {
-              parse_mode: "HTML",
-            });
-          } catch (err) {
-            console.error(
-              `[Alert] Failed to send to user ${userId}:`,
-              err
-            );
-          }
+          enqueueAlert(userId, message);
         }
       }
     } catch (err) {
@@ -70,48 +96,10 @@ stream.on("balance", (address: string, balanceNano: string) => {
   analyzer.handleBalanceUpdate(address, balanceNano);
 });
 
-// Inactivity checker — runs every hour
-const INACTIVITY_CHECK_INTERVAL = 3600000; // 1 hour
+// Start inactivity checker (runs every hour, with dedup)
+const inactivityTimer = startInactivityChecker(bot, queries);
 
-setInterval(async () => {
-  const addresses = queries.getAllWatchedAddresses();
-  const now = Math.floor(Date.now() / 1000);
-
-  for (const address of addresses) {
-    const userIds = queries.getUsersWatchingAddress(address);
-
-    for (const userId of userIds) {
-      const agent = queries.getAgent(userId, address);
-      if (!agent || !agent.last_active) continue;
-
-      const settings = queries.getAlertSettings(userId);
-      const inactiveSetting = settings.find(
-        (s) => s.alert_type === "inactive" && s.enabled
-      );
-      if (!inactiveSetting) continue;
-
-      const threshold = parseInt(inactiveSetting.threshold || "86400", 10);
-      const inactiveDuration = now - agent.last_active;
-
-      if (inactiveDuration > threshold) {
-        const hours = Math.floor(inactiveDuration / 3600);
-        const message = `⚠️ <b>INACTIVE</b>\n\n<b>${agent.name}</b>\nNo activity for ${hours} hours`;
-        try {
-          await bot.api.sendMessage(userId, message, {
-            parse_mode: "HTML",
-          });
-        } catch (err) {
-          console.error(
-            `[Inactivity] Failed to send to user ${userId}:`,
-            err
-          );
-        }
-      }
-    }
-  }
-}, INACTIVITY_CHECK_INTERVAL);
-
-// Start everything
+// ── Start everything ────────────────────────────────
 async function main(): Promise<void> {
   console.log("Starting Vigil...");
 
@@ -139,17 +127,14 @@ main().catch((err) => {
 });
 
 // Graceful shutdown
-process.on("SIGINT", () => {
+function shutdown(): void {
   console.log("\nShutting down...");
+  clearInterval(inactivityTimer);
   stream.close();
   bot.stop();
   db.close();
   process.exit(0);
-});
+}
 
-process.on("SIGTERM", () => {
-  stream.close();
-  bot.stop();
-  db.close();
-  process.exit(0);
-});
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
