@@ -22,18 +22,74 @@ Vigil is a Telegram bot that monitors AI agent wallets on the TON blockchain in 
 
 Track balances, get alerts on suspicious activity, and view dashboards — all from Telegram. Monitor up to 500 agent wallets on a single WebSocket connection. Also includes an **MCP server** for integration with AI assistants.
 
-## Features
+## Try it now
 
-- **Real-time WebSocket streaming** — 1-3 second notification delay after block finalization
-- **6 alert types** — low balance, large transactions, inactivity, high frequency, new contracts, balance drops
-- **Interactive dashboard** — overview of all monitored agents with stats
-- **Transaction history** — last 20 transactions per agent
-- **Inline alert settings** — toggle alerts and adjust thresholds via Telegram buttons
-- **MCP server** — stdio + HTTP transport for AI assistant integration
-- **SQLite storage** — lightweight, zero-config persistence
-- **Auto-reconnect** — exponential backoff (1s → 30s max) on WebSocket disconnect
+[@VigilTONBot](https://t.me/VigilTONBot)
 
-## Quick Start
+Open the bot → `/watch <address> <name>` → done.
+No setup, no installation, no API keys needed.
+
+## Bot Commands
+
+| Command | Description |
+|---------|-------------|
+| `/start` | Welcome message and instructions |
+| `/watch <address> <name>` | Add an agent to monitor |
+| `/unwatch <address>` | Remove an agent |
+| `/list` | List your agents with balances |
+| `/status <address>` | Detailed agent status |
+| `/alerts` | Configure alert settings |
+| `/dashboard` | Overview of all agents |
+| `/history <address>` | Last 20 transactions |
+
+## Alert Types
+
+| Alert | Default Threshold | Description |
+|-------|-------------------|-------------|
+| **Low Balance** | 0.05 TON | Balance below threshold |
+| **Large Transaction** | 1 TON | Single transaction exceeds threshold |
+| **Inactive** | 24 hours | No activity for specified duration |
+| **High Frequency** | 50 txns/hour | Unusual transaction volume |
+| **New Contract** | — | Interaction with previously unseen contract |
+| **Balance Drop** | 50% | Balance dropped significantly within 1 hour |
+
+All alerts are configurable via `/alerts` with inline buttons.
+
+## Architecture
+
+```
+┌──────────────┐     ┌────────────────────┐     ┌──────────────┐
+│   Telegram   │◄────│     Vigil Bot       │────►│   SQLite DB  │
+│    Users     │     │    (grammY)         │     │              │
+└──────────────┘     └────────┬───────────┘     └──────────────┘
+                              │                        ▲
+                     ┌────────▼───────────┐            │
+                     │  Transaction       │────────────┘
+                     │  Analyzer          │
+                     └────────┬───────────┘
+                              │
+                     ┌────────▼───────────┐     ┌──────────────┐
+                     │  WebSocket Stream  │◄────│  Toncenter   │
+                     │  (Streaming v2)    │     │  Streaming   │
+                     └────────────────────┘     │  API v2      │
+                                                └──────────────┘
+
+                     ┌────────────────────┐
+                     │  MCP Server        │ ← AI assistants
+                     │  (stdio/HTTP)      │
+                     └────────────────────┘
+```
+
+### Stack
+
+- **[grammY](https://grammy.dev/)** — Telegram bot framework
+- **[ws](https://github.com/websockets/ws)** — WebSocket client
+- **[better-sqlite3](https://github.com/WiseLibs/better-sqlite3)** — SQLite driver
+- **[@modelcontextprotocol/sdk](https://github.com/modelcontextprotocol/sdk)** — MCP server
+
+## Self-Hosted
+
+Want to run your own instance? Follow these steps.
 
 ### 1. Clone and install
 
@@ -66,31 +122,27 @@ npm start      # Production
 npm run mcp    # Start MCP server (stdio)
 ```
 
-## Bot Commands
+### Directory Structure
 
-| Command | Description |
-|---------|-------------|
-| `/start` | Welcome message and instructions |
-| `/watch <address> <name>` | Add an agent to monitor |
-| `/unwatch <address>` | Remove an agent |
-| `/list` | List your agents with balances |
-| `/status <address>` | Detailed agent status |
-| `/alerts` | Configure alert settings |
-| `/dashboard` | Overview of all agents |
-| `/history <address>` | Last 20 transactions |
-
-## Alert Types
-
-| Alert | Default Threshold | Description |
-|-------|-------------------|-------------|
-| **Low Balance** | 0.05 TON | Balance below threshold |
-| **Large Transaction** | 1 TON | Single transaction exceeds threshold |
-| **Inactive** | 24 hours | No activity for specified duration |
-| **High Frequency** | 50 txns/hour | Unusual transaction volume |
-| **New Contract** | — | Interaction with previously unseen contract |
-| **Balance Drop** | 50% | Balance dropped significantly within 1 hour |
-
-All alerts are configurable via `/alerts` with inline buttons.
+```
+src/
+├── index.ts           — App bootstrap
+├── bot/
+│   ├── commands.ts    — Telegram command handlers
+│   ├── alerts.ts      — Alert settings UI
+│   └── formatters.ts  — Message formatting
+├── monitor/
+│   ├── stream.ts      — WebSocket connection
+│   ├── analyzer.ts    — Transaction processing
+│   └── rules.ts       — Alert rule engine
+├── mcp/
+│   └── server.ts      — MCP stdio/HTTP server
+├── db/
+│   ├── schema.ts      — Database schema
+│   └── queries.ts     — Query layer
+└── ton/
+    └── client.ts      — HTTP fallback
+```
 
 ## MCP Server
 
@@ -126,60 +178,6 @@ Add to your MCP client config:
 | `get_agent_status(address)` | Detailed agent status |
 | `get_agent_history(address, limit)` | Transaction history |
 | `get_alerts()` | Current alert settings |
-
-## Architecture
-
-```
-┌──────────────┐     ┌────────────────────┐     ┌──────────────┐
-│   Telegram   │◄────│     Vigil Bot       │────►│   SQLite DB  │
-│    Users     │     │    (grammY)         │     │              │
-└──────────────┘     └────────┬───────────┘     └──────────────┘
-                              │                        ▲
-                     ┌────────▼───────────┐            │
-                     │  Transaction       │────────────┘
-                     │  Analyzer          │
-                     └────────┬───────────┘
-                              │
-                     ┌────────▼───────────┐     ┌──────────────┐
-                     │  WebSocket Stream  │◄────│  Toncenter   │
-                     │  (Streaming v2)    │     │  Streaming   │
-                     └────────────────────┘     │  API v2      │
-                                                └──────────────┘
-
-                     ┌────────────────────┐
-                     │  MCP Server        │ ← AI assistants
-                     │  (stdio/HTTP)      │
-                     └────────────────────┘
-```
-
-### Stack
-
-- **[grammY](https://grammy.dev/)** — Telegram bot framework
-- **[ws](https://github.com/websockets/ws)** — WebSocket client
-- **[better-sqlite3](https://github.com/WiseLibs/better-sqlite3)** — SQLite driver
-- **[@modelcontextprotocol/sdk](https://github.com/modelcontextprotocol/sdk)** — MCP server
-
-### Directory Structure
-
-```
-src/
-├── index.ts           — App bootstrap
-├── bot/
-│   ├── commands.ts    — Telegram command handlers
-│   ├── alerts.ts      — Alert settings UI
-│   └── formatters.ts  — Message formatting
-├── monitor/
-│   ├── stream.ts      — WebSocket connection
-│   ├── analyzer.ts    — Transaction processing
-│   └── rules.ts       — Alert rule engine
-├── mcp/
-│   └── server.ts      — MCP stdio/HTTP server
-├── db/
-│   ├── schema.ts      — Database schema
-│   └── queries.ts     — Query layer
-└── ton/
-    └── client.ts      — HTTP fallback
-```
 
 ## Security
 
