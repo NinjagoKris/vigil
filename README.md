@@ -9,6 +9,8 @@
 Real-time monitoring of AI agents on TON blockchain via Telegram
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![TON](https://img.shields.io/badge/TON-Mainnet-0088CC?logo=ton&logoColor=white)](#)
+[![MCP](https://img.shields.io/badge/MCP-6%20tools-blueviolet)](#mcp-server)
 
 </div>
 
@@ -18,7 +20,7 @@ Real-time monitoring of AI agents on TON blockchain via Telegram
 
 Vigil is a Telegram bot that monitors AI agent wallets on the TON blockchain in real-time. It uses the **Toncenter Streaming API v2** (WebSocket) for instant transaction notifications — no polling, no delays.
 
-Track balances, get alerts on suspicious activity, and view dashboards — all from Telegram. Also includes an **MCP server** for integration with AI assistants.
+Track balances, get alerts on suspicious activity, and view dashboards — all from Telegram. Monitor up to 500 agent wallets on a single WebSocket connection. Also includes an **MCP server** for integration with AI assistants.
 
 ## Features
 
@@ -36,7 +38,7 @@ Track balances, get alerts on suspicious activity, and view dashboards — all f
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/vigil.git
+git clone https://github.com/NinjagoKris/vigil.git
 cd vigil
 npm install
 ```
@@ -61,6 +63,7 @@ Get a Toncenter API key from [toncenter.com](https://toncenter.com/).
 ```bash
 npm run dev    # Development with hot reload
 npm start      # Production
+npm run mcp    # Start MCP server (stdio)
 ```
 
 ## Bot Commands
@@ -139,8 +142,9 @@ Add to your MCP client config:
                               │
                      ┌────────▼───────────┐     ┌──────────────┐
                      │  WebSocket Stream  │◄────│  Toncenter   │
-                     │  (Streaming v2)    │     │  API v2      │
-                     └────────────────────┘     └──────────────┘
+                     │  (Streaming v2)    │     │  Streaming   │
+                     └────────────────────┘     │  API v2      │
+                                                └──────────────┘
 
                      ┌────────────────────┐
                      │  MCP Server        │ ← AI assistants
@@ -186,6 +190,8 @@ src/
 ---
 
 <div align="center">
+
+Built for the [TON AI Agent Hackathon 2026](https://identityhub.app/contests/ai-hackathon) — User-Facing AI Agents Track
 
 Powered by [Toncenter Streaming API v2](https://toncenter.com/)
 
