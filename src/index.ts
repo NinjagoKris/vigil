@@ -17,8 +17,9 @@ if (!BOT_TOKEN) {
   process.exit(1);
 }
 
-// Init database
-const db = initDatabase();
+// Init database — use DATA_DIR for persistent volume on Railway
+const dataDir = process.env.DATA_DIR || ".";
+const db = initDatabase(`${dataDir}/vigil.db`);
 const queries = new Queries(db);
 
 // Init Telegram bot
