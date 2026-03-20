@@ -104,7 +104,7 @@ export function checkNewContract(ctx: AlertContext): Alert | null {
     type: "new_contract",
     address: ctx.address,
     agentName: ctx.agentName,
-    message: `Interaction with new contract: ${toFriendly(ctx.transaction.counterparty).slice(0, 8)}...${toFriendly(ctx.transaction.counterparty).slice(-6)}`,
+    message: `Interaction with new contract:\n<a href="https://tonviewer.com/${toFriendly(ctx.transaction.counterparty)}">${toFriendly(ctx.transaction.counterparty).slice(0, 8)}...${toFriendly(ctx.transaction.counterparty).slice(-6)}</a>`,
     severity: "warning",
   };
 }
