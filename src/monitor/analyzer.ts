@@ -89,13 +89,24 @@ export class TransactionAnalyzer {
 
       const settings = this.queries.getAlertSettings(userId);
       const balanceChange = this.queries.getBalanceOneHourAgo(address);
-      const txRecord = this.queries.getTransactions(address, 1)[0];
+
+      // Use current tx data directly instead of re-fetching from DB
+      const currentTx = {
+        id: 0,
+        agent_address: address,
+        tx_hash: tx.hash,
+        amount_nano: amount,
+        direction,
+        counterparty,
+        timestamp: tx.now,
+        raw_data: null,
+      };
 
       const ctx: AlertContext = {
         address,
         agentName: agent.name,
         balanceNano: agent.balance_nano,
-        transaction: txRecord,
+        transaction: currentTx,
         settings,
         txCountLastHour: recentTxns.length,
         isNewContract,
