@@ -192,30 +192,6 @@ export function registerCommands(
       return;
     }
 
-    // Check if it's a wallet
-    try {
-      const info = await getAccountInfo(address);
-      if (!info.is_wallet) {
-        await ctx.reply(
-          [
-            `⚠️ <b>Warning:</b> This address doesn't look like a wallet.`,
-            `It may be an exchange, pool, or contract with very high traffic.`,
-            ``,
-            `Are you sure you want to monitor it?`,
-          ].join("\n"),
-          {
-            parse_mode: "HTML",
-            reply_markup: new InlineKeyboard()
-              .text("✅ Add anyway", `fw:${address}:${name}`)
-              .text("❌ Cancel", "m:main"),
-          }
-        );
-        return;
-      }
-    } catch {
-      // If check fails, allow adding anyway
-    }
-
     await addAgentWithBalance(queries, stream, userId, address, name);
 
     await sendOrEdit(
@@ -621,31 +597,6 @@ export function registerCommands(
           }
         );
         return;
-      }
-
-      // Check if it's a wallet
-      try {
-        const info = await getAccountInfo(text);
-        if (!info.is_wallet) {
-          waitingForAddress.delete(userId);
-          await ctx.reply(
-            [
-              `⚠️ <b>Warning:</b> This doesn't look like a wallet.`,
-              `It may be an exchange or contract with high traffic.`,
-              ``,
-              `Send a wallet address, or tap Add anyway.`,
-            ].join("\n"),
-            {
-              parse_mode: "HTML",
-              reply_markup: new InlineKeyboard()
-                .text("✅ Add anyway", `fwa:${text}`)
-                .text("❌ Cancel", "m:main"),
-            }
-          );
-          return;
-        }
-      } catch {
-        // If check fails, continue
       }
 
       waitingForAddress.set(userId, { state: "name", address: text });

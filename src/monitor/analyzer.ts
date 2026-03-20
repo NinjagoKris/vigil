@@ -8,12 +8,25 @@ export class TransactionAnalyzer {
   // Track addresses that received a balance via WebSocket recently
   // so we skip the redundant HTTP call
   private wsBalanceReceived = new Set<string>();
+  // Dedup: skip tx hashes we already processed (WebSocket can send same tx multiple times)
+  private processedTxHashes = new Set<string>();
 
   constructor(private queries: Queries) {}
 
   async processTransaction(
     tx: ToncenterTransaction
   ): Promise<{ alerts: Alert[]; userIds: number[] }> {
+    // Fast in-memory dedup before touching DB
+    if (this.processedTxHashes.has(tx.hash)) {
+      return { alerts: [], userIds: [] };
+    }
+    this.processedTxHashes.add(tx.hash);
+    // Keep set bounded
+    if (this.processedTxHashes.size > 5000) {
+      const entries = [...this.processedTxHashes];
+      this.processedTxHashes = new Set(entries.slice(-2500));
+    }
+
     const address = tx.account; // raw format from WebSocket (0:HEX)
     const userIds = this.queries.getUsersWatchingAddress(address);
 
