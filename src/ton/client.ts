@@ -47,6 +47,66 @@ export function friendlyToRaw(address: string): string | null {
   }
 }
 
+/**
+ * CRC16-CCITT for TON address checksum
+ */
+function crc16(data: Buffer): number {
+  let crc = 0;
+  for (const byte of data) {
+    crc ^= byte << 8;
+    for (let i = 0; i < 8; i++) {
+      crc = crc & 0x8000 ? (crc << 1) ^ 0x1021 : crc << 1;
+      crc &= 0xffff;
+    }
+  }
+  return crc;
+}
+
+/**
+ * Convert raw address (0:hex) to user-friendly format (UQ... non-bounceable)
+ */
+export function rawToFriendly(raw: string): string | null {
+  try {
+    const [wcStr, hexHash] = raw.split(":");
+    if (!hexHash || hexHash.length !== 64) return null;
+
+    const workchain = parseInt(wcStr, 10);
+    const hash = Buffer.from(hexHash, "hex");
+
+    // 0x51 = non-bounceable mainnet (UQ...)
+    const flag = 0x51;
+    const wc = workchain === -1 ? 0xff : workchain;
+
+    const payload = Buffer.alloc(34);
+    payload[0] = flag;
+    payload[1] = wc;
+    hash.copy(payload, 2);
+
+    const checksum = crc16(payload);
+    const full = Buffer.alloc(36);
+    payload.copy(full);
+    full[34] = (checksum >> 8) & 0xff;
+    full[35] = checksum & 0xff;
+
+    return full
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Format any address to user-friendly. Passes through if already friendly.
+ */
+export function toFriendly(address: string): string {
+  if (address.startsWith("EQ") || address.startsWith("UQ")) return address;
+  if (address.includes(":")) return rawToFriendly(address) || address;
+  return address;
+}
+
 export async function getAccountInfo(address: string): Promise<AccountInfo> {
   const url = `${TONCENTER_HTTP_URL}/account?address=${encodeURIComponent(address)}`;
   const response = await fetch(url, { headers: headers() });

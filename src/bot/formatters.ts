@@ -1,5 +1,6 @@
 import type { Agent, Transaction } from "../db/queries.js";
 import type { Alert } from "../monitor/rules.js";
+import { toFriendly } from "../ton/client.js";
 
 export function nanoToTon(nano: string): number {
   return Number(BigInt(nano)) / 1e9;
@@ -14,8 +15,20 @@ export function formatTon(nano: string): string {
 }
 
 export function shortAddress(address: string): string {
-  if (address.length <= 14) return address;
-  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+  const friendly = toFriendly(address);
+  if (friendly.length <= 14) return friendly;
+  return `${friendly.slice(0, 6)}...${friendly.slice(-4)}`;
+}
+
+export function linkedAddress(address: string): string {
+  const friendly = toFriendly(address);
+  const short = shortAddress(friendly);
+  return `<a href="https://tonviewer.com/${friendly}">${short}</a>`;
+}
+
+export function linkedAddressFull(address: string): string {
+  const friendly = toFriendly(address);
+  return `<a href="https://tonviewer.com/${friendly}">${friendly}</a>`;
 }
 
 export function timeAgo(timestamp: number | null): string {
@@ -145,7 +158,7 @@ export function formatStatus(
   const lines: string[] = [
     `${emoji} <b>${agent.name}</b>`,
     ``,
-    `<code>${agent.address}</code>`,
+    linkedAddressFull(agent.address),
     ``,
     `💰 <b>Balance</b>`,
     `${bar}  <b>${formatTon(agent.balance_nano)}</b> TON`,
@@ -165,9 +178,9 @@ export function formatStatus(
     for (const tx of recentTxns.slice(0, 5)) {
       const dir = tx.direction === "in" ? "📥" : "📤";
       const amount = formatTon(tx.amount_nano);
-      const cp = tx.counterparty ? shortAddress(tx.counterparty) : "—";
+      const cp = tx.counterparty ? linkedAddress(tx.counterparty) : "—";
       lines.push(
-        `${dir} <b>${amount}</b> TON  →  <code>${cp}</code>  <i>${timeAgo(tx.timestamp)}</i>`
+        `${dir} <b>${amount}</b> TON  →  ${cp}  <i>${timeAgo(tx.timestamp)}</i>`
       );
     }
   }
@@ -197,7 +210,7 @@ export function formatHistory(
   for (const tx of transactions) {
     const dir = tx.direction === "in" ? "📥" : "📤";
     const amount = formatTon(tx.amount_nano);
-    const cp = tx.counterparty ? shortAddress(tx.counterparty) : "—";
+    const cp = tx.counterparty ? linkedAddress(tx.counterparty) : "—";
     const time = new Date(tx.timestamp * 1000).toLocaleString("en-GB", {
       day: "2-digit",
       month: "short",
@@ -205,7 +218,7 @@ export function formatHistory(
       minute: "2-digit",
     });
     lines.push(
-      `${dir} <b>${amount}</b> TON  ·  <code>${cp}</code>  ·  <i>${time}</i>`
+      `${dir} <b>${amount}</b> TON  ·  ${cp}  ·  <i>${time}</i>`
     );
   }
 
@@ -232,7 +245,7 @@ export function formatAlert(alert: Alert): string {
     `${icon} <b>ALERT</b>  ·  ${severityTag}`,
     ``,
     `<b>${alert.agentName}</b>`,
-    `<code>${shortAddress(alert.address)}</code>`,
+    linkedAddress(alert.address),
     ``,
     `${alert.message}`,
   ].join("\n");

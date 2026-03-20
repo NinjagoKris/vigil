@@ -97,20 +97,19 @@ async function sendOrEdit(
   text: string,
   keyboard: InlineKeyboard
 ): Promise<void> {
+  const opts = {
+    parse_mode: "HTML" as const,
+    reply_markup: keyboard,
+    link_preview_options: { is_disabled: true },
+  };
   if (ctx.callbackQuery) {
     try {
-      await ctx.editMessageText(text, {
-        parse_mode: "HTML",
-        reply_markup: keyboard,
-      });
+      await ctx.editMessageText(text, opts);
     } catch {
       // Message not modified — ignore
     }
   } else {
-    await ctx.reply(text, {
-      parse_mode: "HTML",
-      reply_markup: keyboard,
-    });
+    await ctx.reply(text, opts);
   }
 }
 
