@@ -126,8 +126,9 @@ async function main(): Promise<void> {
   // Connect WebSocket
   stream.connect();
 
-  // Start bot
+  // Start bot with drop_pending_updates to avoid conflicts
   bot.start({
+    drop_pending_updates: true,
     onStart: () => {
       console.log("[Bot] Vigil is online. Never sleep on your agents.");
     },
