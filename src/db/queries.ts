@@ -4,6 +4,7 @@ export interface Agent {
   id: number;
   user_id: number;
   address: string;
+  raw_address: string | null;
   name: string;
   balance_nano: string;
   last_active: number | null;
@@ -41,12 +42,12 @@ export const ALERT_TYPES = {
 export class Queries {
   constructor(private db: Database.Database) {}
 
-  addAgent(userId: number, address: string, name: string): void {
+  addAgent(userId: number, address: string, name: string, rawAddress?: string): void {
     this.db
       .prepare(
-        "INSERT OR REPLACE INTO agents (user_id, address, name, added_at) VALUES (?, ?, ?, unixepoch())"
+        "INSERT OR REPLACE INTO agents (user_id, address, raw_address, name, added_at) VALUES (?, ?, ?, ?, unixepoch())"
       )
-      .run(userId, address, name);
+      .run(userId, address, rawAddress ?? null, name);
 
     // Init default alert settings for this user
     for (const alert of Object.values(ALERT_TYPES)) {
@@ -86,21 +87,21 @@ export class Queries {
 
   getUsersWatchingAddress(address: string): number[] {
     const rows = this.db
-      .prepare("SELECT DISTINCT user_id FROM agents WHERE address = ?")
-      .all(address) as { user_id: number }[];
+      .prepare("SELECT DISTINCT user_id FROM agents WHERE address = ? OR raw_address = ?")
+      .all(address, address) as { user_id: number }[];
     return rows.map((r) => r.user_id);
   }
 
   updateBalance(address: string, balanceNano: string): void {
     this.db
-      .prepare("UPDATE agents SET balance_nano = ? WHERE address = ?")
-      .run(balanceNano, address);
+      .prepare("UPDATE agents SET balance_nano = ? WHERE address = ? OR raw_address = ?")
+      .run(balanceNano, address, address);
   }
 
   updateLastActive(address: string, timestamp: number): void {
     this.db
-      .prepare("UPDATE agents SET last_active = ? WHERE address = ?")
-      .run(timestamp, address);
+      .prepare("UPDATE agents SET last_active = ? WHERE address = ? OR raw_address = ?")
+      .run(timestamp, address, address);
   }
 
   addTransaction(
@@ -113,13 +114,15 @@ export class Queries {
     rawData: string | null
   ): boolean {
     try {
+      // Resolve to friendly address for consistent storage
+      const resolved = this.resolveAddress(agentAddress);
       this.db
         .prepare(
           `INSERT INTO transactions (agent_address, tx_hash, amount_nano, direction, counterparty, timestamp, raw_data)
            VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
-          agentAddress,
+          resolved,
           txHash,
           amountNano,
           direction,
@@ -135,22 +138,25 @@ export class Queries {
   }
 
   getTransactions(agentAddress: string, limit: number = 20): Transaction[] {
+    const resolved = this.resolveAddress(agentAddress);
     return this.db
       .prepare(
         "SELECT * FROM transactions WHERE agent_address = ? ORDER BY timestamp DESC LIMIT ?"
       )
-      .all(agentAddress, limit) as Transaction[];
+      .all(resolved, limit) as Transaction[];
   }
 
   getTransactionsSince(agentAddress: string, since: number): Transaction[] {
+    const resolved = this.resolveAddress(agentAddress);
     return this.db
       .prepare(
         "SELECT * FROM transactions WHERE agent_address = ? AND timestamp >= ? ORDER BY timestamp DESC"
       )
-      .all(agentAddress, since) as Transaction[];
+      .all(resolved, since) as Transaction[];
   }
 
   getTodayStats(agentAddress: string): { count: number; volume: string } {
+    const resolved = this.resolveAddress(agentAddress);
     const startOfDay =
       Math.floor(Date.now() / 1000) - (Math.floor(Date.now() / 1000) % 86400);
     const row = this.db
@@ -158,7 +164,7 @@ export class Queries {
         `SELECT COUNT(*) as count, COALESCE(SUM(CAST(amount_nano AS INTEGER)), 0) as volume
          FROM transactions WHERE agent_address = ? AND timestamp >= ?`
       )
-      .get(agentAddress, startOfDay) as { count: number; volume: string };
+      .get(resolved, startOfDay) as { count: number; volume: string };
     return row;
   }
 
@@ -217,11 +223,12 @@ export class Queries {
 
   addKnownContract(agentAddress: string, contractAddress: string): boolean {
     try {
+      const resolved = this.resolveAddress(agentAddress);
       this.db
         .prepare(
           "INSERT INTO known_contracts (agent_address, contract_address) VALUES (?, ?)"
         )
-        .run(agentAddress, contractAddress);
+        .run(resolved, contractAddress);
       return true; // New contract
     } catch {
       return false; // Already known
@@ -229,15 +236,17 @@ export class Queries {
   }
 
   isKnownContract(agentAddress: string, contractAddress: string): boolean {
+    const resolved = this.resolveAddress(agentAddress);
     const row = this.db
       .prepare(
         "SELECT 1 FROM known_contracts WHERE agent_address = ? AND contract_address = ?"
       )
-      .get(agentAddress, contractAddress);
+      .get(resolved, contractAddress);
     return !!row;
   }
 
   getBalanceOneHourAgo(address: string): string | null {
+    const resolved = this.resolveAddress(address);
     const oneHourAgo = Math.floor(Date.now() / 1000) - 3600;
     // Estimate balance by summing transactions in the last hour
     // This is an approximation - we track the delta
@@ -248,7 +257,7 @@ export class Queries {
            SUM(CASE WHEN direction = 'out' THEN CAST(amount_nano AS INTEGER) ELSE 0 END) as total_out
          FROM transactions WHERE agent_address = ? AND timestamp >= ?`
       )
-      .get(address, oneHourAgo) as {
+      .get(resolved, oneHourAgo) as {
       total_in: number | null;
       total_out: number | null;
     };
@@ -256,5 +265,20 @@ export class Queries {
     if (!row.total_in && !row.total_out) return null;
     const netChange = (row.total_in || 0) - (row.total_out || 0);
     return netChange.toString();
+  }
+
+  getAgentCount(userId: number): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) as count FROM agents WHERE user_id = ?")
+      .get(userId) as { count: number };
+    return row.count;
+  }
+
+  resolveAddress(address: string): string {
+    // If given a raw address (0:hex), look up the friendly address
+    const row = this.db
+      .prepare("SELECT address FROM agents WHERE raw_address = ? LIMIT 1")
+      .get(address) as { address: string } | undefined;
+    return row ? row.address : address;
   }
 }

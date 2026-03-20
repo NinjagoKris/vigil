@@ -10,6 +10,7 @@ export function initDatabase(dbPath: string = "vigil.db"): Database.Database {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
       address TEXT NOT NULL,
+      raw_address TEXT,
       name TEXT NOT NULL,
       balance_nano TEXT DEFAULT '0',
       last_active INTEGER,
@@ -48,10 +49,17 @@ export function initDatabase(dbPath: string = "vigil.db"): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_agents_user ON agents(user_id);
     CREATE INDEX IF NOT EXISTS idx_agents_address ON agents(address);
+    CREATE INDEX IF NOT EXISTS idx_agents_raw_address ON agents(raw_address);
     CREATE INDEX IF NOT EXISTS idx_tx_agent ON transactions(agent_address);
     CREATE INDEX IF NOT EXISTS idx_tx_timestamp ON transactions(timestamp);
     CREATE INDEX IF NOT EXISTS idx_known_agent ON known_contracts(agent_address);
   `);
+
+  // Migration: add raw_address column if it doesn't exist (for existing databases)
+  const columns = db.pragma("table_info(agents)") as Array<{ name: string }>;
+  if (!columns.some((c) => c.name === "raw_address")) {
+    db.exec("ALTER TABLE agents ADD COLUMN raw_address TEXT");
+  }
 
   return db;
 }

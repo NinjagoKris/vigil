@@ -23,6 +23,7 @@ export interface AccountInfo {
   status: string;
   last_activity: number;
   is_wallet: boolean;
+  raw_address: string;
 }
 
 export async function getAccountInfo(address: string): Promise<AccountInfo> {
@@ -32,6 +33,7 @@ export async function getAccountInfo(address: string): Promise<AccountInfo> {
     throw new Error(`Toncenter HTTP error: ${response.status}`);
   }
   const data = (await response.json()) as {
+    address: string;
     balance: string;
     status: string;
     last_activity: number;
@@ -50,5 +52,6 @@ export async function getAccountInfo(address: string): Promise<AccountInfo> {
     status: data.status || "unknown",
     last_activity: data.last_activity || 0,
     is_wallet: isWallet,
+    raw_address: data.address || "",
   };
 }

@@ -10,9 +10,15 @@ import {
   formatHistory,
   formatWatchSuccess,
   formatUnwatchSuccess,
+  formatThresholdSubmenu,
   shortAddress,
 } from "./formatters.js";
-import { buildAlertKeyboard, handleAlertCallback } from "./alerts.js";
+import {
+  buildAlertKeyboard,
+  buildThresholdKeyboard,
+  handleAlertCallback,
+  handleThresholdSet,
+} from "./alerts.js";
 
 // ─── KEYBOARD BUILDERS ──────────────────────────────
 // Short prefixes to stay under Telegram's 64-byte callback_data limit
@@ -115,20 +121,26 @@ async function addAgentWithBalance(
   address: string,
   name: string
 ): Promise<void> {
-  queries.addAgent(userId, address, name);
-  stream.subscribe([address]);
-
-  // Fetch initial balance + last_activity
+  // Fetch initial balance + last_activity + raw_address
+  let rawAddress: string | undefined;
   try {
     const info = await getAccountInfo(address);
+    rawAddress = info.raw_address || undefined;
+    queries.addAgent(userId, address, name, rawAddress);
+    stream.subscribe([address]);
     queries.updateBalance(address, info.balance);
     if (info.last_activity) {
       queries.updateLastActive(address, info.last_activity);
     }
   } catch (err) {
+    // If API call fails, still add the agent without raw_address
+    queries.addAgent(userId, address, name);
+    stream.subscribe([address]);
     console.error(`[Watch] Failed to fetch initial balance for ${address}:`, err);
   }
 }
+
+const MAX_AGENTS_PER_USER = 10;
 
 // ─── REGISTER ────────────────────────────────────────
 
@@ -146,6 +158,13 @@ export function registerCommands(
   bot.command("watch", async (ctx) => {
     const userId = ctx.from?.id;
     if (!userId) return;
+
+    if (queries.getAgentCount(userId) >= MAX_AGENTS_PER_USER) {
+      await ctx.reply("You can monitor up to 10 agents.", {
+        reply_markup: backToMenuKeyboard(),
+      });
+      return;
+    }
 
     const args = ctx.message?.text?.split(/\s+/).slice(1) || [];
     if (args.length < 2) {
@@ -380,6 +399,13 @@ export function registerCommands(
   bot.callbackQuery("m:watch", async (ctx) => {
     const userId = ctx.from?.id;
     if (!userId) return;
+
+    if (queries.getAgentCount(userId) >= MAX_AGENTS_PER_USER) {
+      await sendOrEdit(ctx, "You can monitor up to 10 agents.", backToMenuKeyboard());
+      await ctx.answerCallbackQuery();
+      return;
+    }
+
     waitingForAddress.set(userId, { state: "address" });
     await sendOrEdit(
       ctx,
@@ -418,13 +444,47 @@ export function registerCommands(
     await ctx.answerCallbackQuery();
   });
 
-  bot.callbackQuery(/^toggle_alert:(.+)$/, async (ctx) => {
+  // ── Threshold submenu (ta:ALERTTYPE) ───────────────
+  bot.callbackQuery(/^ta:(.+)$/, async (ctx) => {
     const userId = ctx.from?.id;
     if (!userId) return;
     const alertType = ctx.match[1];
-    const { text, keyboard } = handleAlertCallback(queries, userId, alertType);
-    await sendOrEdit(ctx, text, keyboard);
+    queries.ensureAlertSettings(userId);
+    const setting = queries.getAlertSetting(userId, alertType);
+    const effectiveSetting = setting || { enabled: 1, threshold: null };
+    await sendOrEdit(
+      ctx,
+      formatThresholdSubmenu(alertType, effectiveSetting),
+      buildThresholdKeyboard(alertType, effectiveSetting)
+    );
     await ctx.answerCallbackQuery();
+  });
+
+  // ── Toggle alert on/off (tt:ALERTTYPE) ────────────
+  bot.callbackQuery(/^tt:(.+)$/, async (ctx) => {
+    const userId = ctx.from?.id;
+    if (!userId) return;
+    const alertType = ctx.match[1];
+    queries.toggleAlert(userId, alertType);
+    const setting = queries.getAlertSetting(userId, alertType);
+    const effectiveSetting = setting || { enabled: 1, threshold: null };
+    await sendOrEdit(
+      ctx,
+      formatThresholdSubmenu(alertType, effectiveSetting),
+      buildThresholdKeyboard(alertType, effectiveSetting)
+    );
+    await ctx.answerCallbackQuery();
+  });
+
+  // ── Set threshold value (tv:ALERTTYPE:VALUE) ──────
+  bot.callbackQuery(/^tv:(.+):(.+)$/, async (ctx) => {
+    const userId = ctx.from?.id;
+    if (!userId) return;
+    const alertType = ctx.match[1];
+    const value = ctx.match[2];
+    const { text, keyboard } = handleThresholdSet(queries, userId, alertType, value);
+    await sendOrEdit(ctx, text, keyboard);
+    await ctx.answerCallbackQuery({ text: "Threshold updated" });
   });
 
   // ── Agent status (s:ADDRESS) ─────────────────────
@@ -501,6 +561,13 @@ export function registerCommands(
   bot.callbackQuery(/^fw:(.+):(.+)$/, async (ctx) => {
     const userId = ctx.from?.id;
     if (!userId) return;
+
+    if (queries.getAgentCount(userId) >= MAX_AGENTS_PER_USER) {
+      await sendOrEdit(ctx, "You can monitor up to 10 agents.", backToMenuKeyboard());
+      await ctx.answerCallbackQuery();
+      return;
+    }
+
     const address = ctx.match[1];
     const name = ctx.match[2];
 
@@ -532,6 +599,14 @@ export function registerCommands(
     if (text.startsWith("/")) return;
 
     if (waiting.state === "address") {
+      if (queries.getAgentCount(userId) >= MAX_AGENTS_PER_USER) {
+        waitingForAddress.delete(userId);
+        await ctx.reply("You can monitor up to 10 agents.", {
+          reply_markup: backToMenuKeyboard(),
+        });
+        return;
+      }
+
       if (!text.match(/^(EQ|UQ|0:)[A-Za-z0-9_\-+/]{20,}/)) {
         await ctx.reply(
           [
@@ -614,6 +689,13 @@ export function registerCommands(
   bot.callbackQuery(/^fwa:(.+)$/, async (ctx) => {
     const userId = ctx.from?.id;
     if (!userId) return;
+
+    if (queries.getAgentCount(userId) >= MAX_AGENTS_PER_USER) {
+      await sendOrEdit(ctx, "You can monitor up to 10 agents.", backToMenuKeyboard());
+      await ctx.answerCallbackQuery();
+      return;
+    }
+
     const address = ctx.match[1];
     waitingForAddress.set(userId, { state: "name", address });
     await sendOrEdit(

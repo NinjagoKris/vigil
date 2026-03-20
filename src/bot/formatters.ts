@@ -284,6 +284,68 @@ export function formatAlertSettings(
   return lines.join("\n");
 }
 
+// ─── THRESHOLD SUBMENU ───────────────────────────────
+
+const ALERT_META: Record<
+  string,
+  { name: string; icon: string; unit: string }
+> = {
+  low_balance: { name: "Low Balance", icon: "🪫", unit: "TON" },
+  large_tx: { name: "Large TX", icon: "💸", unit: "TON" },
+  inactive: { name: "Inactive", icon: "💤", unit: "hours" },
+  high_frequency: { name: "High Frequency", icon: "⚡", unit: "txns/h" },
+  new_contract: { name: "New Contract", icon: "🆕", unit: "" },
+  balance_drop: { name: "Balance Drop", icon: "📉", unit: "%" },
+};
+
+export function formatThresholdValue(
+  alertType: string,
+  threshold: string | null
+): string {
+  if (!threshold) return "—";
+  if (alertType === "low_balance" || alertType === "large_tx") {
+    return `${formatTon(threshold)} TON`;
+  }
+  if (alertType === "inactive") {
+    const hours = parseInt(threshold, 10) / 3600;
+    return `${hours}h`;
+  }
+  if (alertType === "high_frequency") {
+    return `${threshold} txns/h`;
+  }
+  if (alertType === "balance_drop") {
+    return `${threshold}%`;
+  }
+  return threshold;
+}
+
+export function formatThresholdSubmenu(
+  alertType: string,
+  setting: { enabled: number; threshold: string | null }
+): string {
+  const meta = ALERT_META[alertType] || {
+    name: alertType,
+    icon: "🔔",
+    unit: "",
+  };
+  const status = setting.enabled ? "✅ ON" : "❌ OFF";
+  const thresholdDisplay = formatThresholdValue(alertType, setting.threshold);
+
+  const lines: string[] = [
+    `${meta.icon} <b>${meta.name}</b>`,
+    ``,
+    `Status: ${status}`,
+  ];
+
+  if (alertType !== "new_contract") {
+    lines.push(`Current threshold: <b>${thresholdDisplay}</b>`);
+    lines.push(``);
+    lines.push(`<i>Choose a new threshold:</i>`);
+  }
+
+  return lines.join("\n");
+}
+
 // ─── WATCH CONFIRMATIONS ─────────────────────────────
 
 export function formatWatchSuccess(name: string, address: string): string {
