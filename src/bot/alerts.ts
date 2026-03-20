@@ -2,32 +2,37 @@ import { InlineKeyboard } from "grammy";
 import type { Queries } from "../db/queries.js";
 import { formatAlertSettings } from "./formatters.js";
 
-const ALERT_TYPE_LABELS: Record<string, string> = {
-  low_balance: "Low Balance",
-  large_tx: "Large TX",
-  inactive: "Inactive",
-  high_frequency: "High Freq",
-  new_contract: "New Contract",
-  balance_drop: "Balance Drop",
-};
+const ALERT_TYPES: Array<{
+  type: string;
+  label: string;
+  icon: string;
+}> = [
+  { type: "low_balance", label: "Low Balance", icon: "🪫" },
+  { type: "large_tx", label: "Large TX", icon: "💸" },
+  { type: "inactive", label: "Inactive", icon: "💤" },
+  { type: "high_frequency", label: "High Freq", icon: "⚡" },
+  { type: "new_contract", label: "New Contract", icon: "🆕" },
+  { type: "balance_drop", label: "Balance Drop", icon: "📉" },
+];
 
 export function buildAlertKeyboard(
-  settings: Array<{
-    alert_type: string;
-    enabled: number;
-  }>
+  settings: Array<{ alert_type: string; enabled: number }>
 ): InlineKeyboard {
-  const keyboard = new InlineKeyboard();
+  const kb = new InlineKeyboard();
 
-  for (let i = 0; i < settings.length; i++) {
-    const s = settings[i];
-    const label = ALERT_TYPE_LABELS[s.alert_type] || s.alert_type;
-    const icon = s.enabled ? "✅" : "❌";
-    keyboard.text(`${icon} ${label}`, `toggle_alert:${s.alert_type}`);
-    if (i % 2 === 1) keyboard.row();
+  for (let i = 0; i < ALERT_TYPES.length; i++) {
+    const at = ALERT_TYPES[i];
+    const setting = settings.find((s) => s.alert_type === at.type);
+    const isOn = setting?.enabled ?? 1;
+    const toggle = isOn ? "✅" : "❌";
+    kb.text(`${toggle} ${at.icon} ${at.label}`, `toggle_alert:${at.type}`);
+    if (i % 2 === 1) kb.row();
   }
 
-  return keyboard;
+  kb.row();
+  kb.text("◀️ Back to Menu", "menu:main");
+
+  return kb;
 }
 
 export function handleAlertCallback(

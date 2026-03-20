@@ -7,6 +7,8 @@ import {
   formatDashboard,
   formatAgentList,
   formatAlert,
+  formatStart,
+  formatWatchSuccess,
 } from "../src/bot/formatters.js";
 
 describe("Formatters", () => {
@@ -19,9 +21,16 @@ describe("Formatters", () => {
   });
 
   describe("formatTon", () => {
-    it("formats with 4 decimal places", () => {
-      expect(formatTon("1500000000")).toBe("1.5000");
+    it("formats large values with 2 decimals", () => {
+      expect(formatTon("1500000000")).toBe("1.50");
+    });
+
+    it("formats small values with 4 decimals", () => {
       expect(formatTon("50000000")).toBe("0.0500");
+    });
+
+    it("formats zero", () => {
+      expect(formatTon("0")).toBe("0");
     });
   });
 
@@ -39,7 +48,7 @@ describe("Formatters", () => {
 
   describe("timeAgo", () => {
     it("handles null", () => {
-      expect(timeAgo(null)).toBe("Never");
+      expect(timeAgo(null)).toBe("never");
     });
 
     it("formats seconds", () => {
@@ -49,12 +58,20 @@ describe("Formatters", () => {
 
     it("formats minutes", () => {
       const now = Math.floor(Date.now() / 1000);
-      expect(timeAgo(now - 120)).toBe("2 min ago");
+      expect(timeAgo(now - 120)).toBe("2m ago");
     });
 
     it("formats hours", () => {
       const now = Math.floor(Date.now() / 1000);
-      expect(timeAgo(now - 7200)).toBe("2 hours ago");
+      expect(timeAgo(now - 7200)).toBe("2h ago");
+    });
+  });
+
+  describe("formatStart", () => {
+    it("contains branding", () => {
+      const text = formatStart();
+      expect(text).toContain("Vigil");
+      expect(text).toContain("Never sleep on your agents");
     });
   });
 
@@ -64,7 +81,7 @@ describe("Formatters", () => {
       expect(result).toContain("No agents");
     });
 
-    it("shows agents with stats", () => {
+    it("shows agents with balance bars", () => {
       const agents = [
         {
           id: 1,
@@ -81,13 +98,20 @@ describe("Formatters", () => {
       ]);
       const result = formatDashboard(agents, stats);
       expect(result).toContain("Translation Agent");
-      expect(result).toContain("1.4500 TON");
-      expect(result).toContain("12");
+      expect(result).toContain("1.45");
+      expect(result).toContain("12 txns");
+    });
+  });
+
+  describe("formatAgentList", () => {
+    it("shows empty state", () => {
+      const result = formatAgentList([]);
+      expect(result).toContain("No agents");
     });
   });
 
   describe("formatAlert", () => {
-    it("formats warning alert", () => {
+    it("formats warning alert with icon", () => {
       const result = formatAlert({
         type: "large_tx",
         address: "EQTest123456789012345",
@@ -95,7 +119,8 @@ describe("Formatters", () => {
         message: "Outgoing 2.5 TON",
         severity: "warning",
       });
-      expect(result).toContain("LARGE TRANSACTION");
+      expect(result).toContain("💸");
+      expect(result).toContain("ALERT");
       expect(result).toContain("TestAgent");
     });
 
@@ -107,7 +132,17 @@ describe("Formatters", () => {
         message: "Balance low",
         severity: "critical",
       });
-      expect(result).toContain("🔴");
+      expect(result).toContain("CRITICAL");
+      expect(result).toContain("🪫");
+    });
+  });
+
+  describe("formatWatchSuccess", () => {
+    it("confirms agent was added", () => {
+      const result = formatWatchSuccess("MyAgent", "EQAddr123");
+      expect(result).toContain("Agent Added");
+      expect(result).toContain("MyAgent");
+      expect(result).toContain("EQAddr123");
     });
   });
 });

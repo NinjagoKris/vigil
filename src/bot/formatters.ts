@@ -6,7 +6,11 @@ export function nanoToTon(nano: string): number {
 }
 
 export function formatTon(nano: string): string {
-  return nanoToTon(nano).toFixed(4);
+  const val = nanoToTon(nano);
+  if (val === 0) return "0";
+  if (val < 0.001) return val.toFixed(6);
+  if (val < 1) return val.toFixed(4);
+  return val.toFixed(2);
 }
 
 export function shortAddress(address: string): string {
@@ -15,80 +19,121 @@ export function shortAddress(address: string): string {
 }
 
 export function timeAgo(timestamp: number | null): string {
-  if (!timestamp) return "Never";
+  if (!timestamp) return "never";
   const diff = Math.floor(Date.now() / 1000) - timestamp;
+  if (diff < 0) return "just now";
   if (diff < 60) return `${diff}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} hours ago`;
-  return `${Math.floor(diff / 86400)} days ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
 }
+
+function balanceBar(balance: number): string {
+  if (balance >= 5) return "🟢🟢🟢🟢🟢";
+  if (balance >= 2) return "🟢🟢🟢🟢⚪";
+  if (balance >= 1) return "🟢🟢🟢⚪⚪";
+  if (balance >= 0.3) return "🟡🟡⚪⚪⚪";
+  if (balance >= 0.05) return "🟠⚪⚪⚪⚪";
+  return "🔴⚪⚪⚪⚪";
+}
+
+function statusEmoji(agent: Agent): string {
+  const balance = nanoToTon(agent.balance_nano);
+  const isInactive =
+    agent.last_active && Date.now() / 1000 - agent.last_active > 86400;
+  if (balance < 0.05 && isInactive) return "🔴";
+  if (balance < 0.05) return "🟠";
+  if (isInactive) return "💤";
+  return "🟢";
+}
+
+// ─── START ───────────────────────────────────────────
 
 export function formatStart(): string {
-  return `<b>Vigil</b> — Never sleep on your agents
-
-Real-time monitoring of AI agents on TON blockchain.
-
-<b>Commands:</b>
-/watch <code>&lt;address&gt; &lt;name&gt;</code> — Add agent to monitor
-/unwatch <code>&lt;address&gt;</code> — Remove agent
-/list — List your agents with balances
-/status <code>&lt;address&gt;</code> — Detailed agent status
-/alerts — Configure alert settings
-/dashboard — Overview of all agents
-/history <code>&lt;address&gt;</code> — Last 20 transactions
-
-<b>Alerts:</b>
-Low balance, large transactions, inactivity, high frequency, new contracts, balance drops — all configurable.`;
+  return [
+    `🛡 <b>Vigil</b>`,
+    `<i>Never sleep on your agents</i>`,
+    ``,
+    `Real-time monitoring of AI agents`,
+    `on the TON blockchain.`,
+    ``,
+    `━━━━━━━━━━━━━━━━━━━━━`,
+    ``,
+    `👇 Use the menu below to get started.`,
+    `Add your first agent to begin monitoring.`,
+  ].join("\n");
 }
+
+// ─── DASHBOARD ───────────────────────────────────────
 
 export function formatDashboard(
   agents: Agent[],
   stats: Map<string, { count: number; volume: string }>
 ): string {
   if (agents.length === 0) {
-    return `<b>Vigil Dashboard</b>\n\nNo agents being monitored.\nUse /watch to add one.`;
+    return [
+      `🛡 <b>Vigil Dashboard</b>`,
+      ``,
+      `<i>No agents being monitored yet.</i>`,
+      ``,
+      `Tap <b>➕ Add Agent</b> to start.`,
+    ].join("\n");
   }
 
-  let text = `<b>⚡ Vigil Dashboard</b>\n`;
+  const lines: string[] = [
+    `🛡 <b>Vigil Dashboard</b>`,
+    `<i>${agents.length} agent${agents.length > 1 ? "s" : ""} monitored</i>`,
+    ``,
+  ];
 
   for (const agent of agents) {
     const balance = nanoToTon(agent.balance_nano);
-    const isLow = balance < 0.05;
     const stat = stats.get(agent.address) || { count: 0, volume: "0" };
-    const lastActive = timeAgo(agent.last_active);
+    const emoji = statusEmoji(agent);
+    const bar = balanceBar(balance);
 
-    const isInactive =
-      agent.last_active && Date.now() / 1000 - agent.last_active > 86400;
-
-    let status = "✅ Normal";
-    if (isLow) status = "⚠️ Low Balance";
-    if (isInactive) status = "⚠️ Inactive";
-    if (isLow && isInactive) status = "🔴 Attention";
-
-    text += `\n<b>${agent.name}</b> (<code>${shortAddress(agent.address)}</code>)`;
-    text += `\nBalance: ${balance.toFixed(4)} TON${isLow ? " ⚠️ Low" : ""}`;
-    text += `\nLast active: ${lastActive}`;
-    text += `\nTxns today: ${stat.count} | Volume: ${formatTon(stat.volume)} TON`;
-    text += `\nStatus: ${status}\n`;
+    lines.push(`${emoji} <b>${agent.name}</b>`);
+    lines.push(`${bar}  <b>${formatTon(agent.balance_nano)}</b> TON`);
+    lines.push(
+      `📊 ${stat.count} txns  ·  💎 ${formatTon(stat.volume)} vol  ·  🕐 ${timeAgo(agent.last_active)}`
+    );
+    lines.push(``);
   }
 
-  return text;
+  return lines.join("\n");
 }
+
+// ─── AGENT LIST ──────────────────────────────────────
 
 export function formatAgentList(agents: Agent[]): string {
   if (agents.length === 0) {
-    return "No agents being monitored.\nUse /watch <code>&lt;address&gt; &lt;name&gt;</code> to add one.";
+    return [
+      `📋 <b>My Agents</b>`,
+      ``,
+      `<i>No agents yet.</i>`,
+      `Tap <b>➕ Add Agent</b> below.`,
+    ].join("\n");
   }
 
-  let text = `<b>Your Agents</b> (${agents.length})\n`;
+  const lines: string[] = [
+    `📋 <b>My Agents</b>  <i>(${agents.length})</i>`,
+    ``,
+  ];
+
   for (const agent of agents) {
-    const balance = formatTon(agent.balance_nano);
-    text += `\n• <b>${agent.name}</b>`;
-    text += `\n  <code>${shortAddress(agent.address)}</code>`;
-    text += `\n  Balance: ${balance} TON | Last: ${timeAgo(agent.last_active)}`;
+    const emoji = statusEmoji(agent);
+    lines.push(
+      `${emoji} <b>${agent.name}</b>  —  <b>${formatTon(agent.balance_nano)}</b> TON`
+    );
   }
-  return text;
+
+  lines.push(``);
+  lines.push(`<i>Tap an agent for details</i>`);
+
+  return lines.join("\n");
 }
+
+// ─── AGENT STATUS ────────────────────────────────────
 
 export function formatStatus(
   agent: Agent,
@@ -96,60 +141,106 @@ export function formatStatus(
   recentTxns: Transaction[]
 ): string {
   const balance = nanoToTon(agent.balance_nano);
+  const emoji = statusEmoji(agent);
+  const bar = balanceBar(balance);
 
-  let text = `<b>${agent.name}</b>\n`;
-  text += `Address: <code>${agent.address}</code>\n`;
-  text += `Balance: ${balance.toFixed(4)} TON\n`;
-  text += `Last active: ${timeAgo(agent.last_active)}\n`;
-  text += `Txns today: ${stats.count} | Volume: ${formatTon(stats.volume)} TON\n`;
-  text += `Monitored since: ${new Date(agent.added_at * 1000).toLocaleDateString()}\n`;
+  const lines: string[] = [
+    `${emoji} <b>${agent.name}</b>`,
+    ``,
+    `<code>${agent.address}</code>`,
+    ``,
+    `💰 <b>Balance</b>`,
+    `${bar}  <b>${formatTon(agent.balance_nano)}</b> TON`,
+    ``,
+    `📊 <b>Today</b>`,
+    `Transactions: <b>${stats.count}</b>`,
+    `Volume: <b>${formatTon(stats.volume)}</b> TON`,
+    ``,
+    `🕐 Last active: <b>${timeAgo(agent.last_active)}</b>`,
+    `📅 Monitored since: ${new Date(agent.added_at * 1000).toLocaleDateString()}`,
+  ];
 
   if (recentTxns.length > 0) {
-    text += `\n<b>Last 5 transactions:</b>\n`;
+    lines.push(``);
+    lines.push(`━━━━━━━━━━━━━━━━━━━━━`);
+    lines.push(`📜 <b>Recent Transactions</b>`);
+    lines.push(``);
     for (const tx of recentTxns.slice(0, 5)) {
       const dir = tx.direction === "in" ? "📥" : "📤";
       const amount = formatTon(tx.amount_nano);
       const cp = tx.counterparty ? shortAddress(tx.counterparty) : "—";
-      text += `${dir} ${amount} TON ${tx.direction === "in" ? "from" : "to"} ${cp} (${timeAgo(tx.timestamp)})\n`;
+      lines.push(
+        `${dir} <b>${amount}</b> TON  →  <code>${cp}</code>  <i>${timeAgo(tx.timestamp)}</i>`
+      );
     }
   }
 
-  return text;
+  return lines.join("\n");
 }
+
+// ─── TRANSACTION HISTORY ─────────────────────────────
 
 export function formatHistory(
   agentName: string,
   transactions: Transaction[]
 ): string {
   if (transactions.length === 0) {
-    return `<b>${agentName}</b> — No transactions recorded yet.`;
+    return [
+      `📜 <b>${agentName}</b>`,
+      ``,
+      `<i>No transactions recorded yet.</i>`,
+    ].join("\n");
   }
 
-  let text = `<b>${agentName} — Transaction History</b>\n`;
+  const lines: string[] = [
+    `📜 <b>${agentName}</b>  —  Transaction History`,
+    ``,
+  ];
+
   for (const tx of transactions) {
     const dir = tx.direction === "in" ? "📥" : "📤";
     const amount = formatTon(tx.amount_nano);
     const cp = tx.counterparty ? shortAddress(tx.counterparty) : "—";
-    const time = new Date(tx.timestamp * 1000).toLocaleString();
-    text += `\n${dir} ${amount} TON`;
-    text += `\n   ${tx.direction === "in" ? "From" : "To"}: <code>${cp}</code>`;
-    text += `\n   ${time}`;
+    const time = new Date(tx.timestamp * 1000).toLocaleString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    lines.push(
+      `${dir} <b>${amount}</b> TON  ·  <code>${cp}</code>  ·  <i>${time}</i>`
+    );
   }
-  return text;
+
+  return lines.join("\n");
 }
 
-export function formatAlert(alert: Alert): string {
-  const icon = alert.severity === "critical" ? "🔴" : "⚠️";
-  const typeLabels: Record<string, string> = {
-    low_balance: "LOW BALANCE",
-    large_tx: "LARGE TRANSACTION",
-    inactive: "INACTIVE",
-    high_frequency: "HIGH FREQUENCY",
-    new_contract: "NEW CONTRACT",
-    balance_drop: "BALANCE DROP",
-  };
+// ─── ALERTS ──────────────────────────────────────────
 
-  return `${icon} <b>${typeLabels[alert.type] || alert.type}</b>\n\n<b>${alert.agentName}</b> (<code>${shortAddress(alert.address)}</code>)\n${alert.message}`;
+export function formatAlert(alert: Alert): string {
+  const icons: Record<string, string> = {
+    low_balance: "🪫",
+    large_tx: "💸",
+    inactive: "💤",
+    high_frequency: "⚡",
+    new_contract: "🆕",
+    balance_drop: "📉",
+  };
+  const icon = icons[alert.type] || (alert.severity === "critical" ? "🔴" : "⚠️");
+
+  const severityTag =
+    alert.severity === "critical" ? "🔴 CRITICAL" : "⚠️ WARNING";
+
+  return [
+    `━━━━━━━━━━━━━━━━━━━━━`,
+    `${icon} <b>ALERT</b>  ·  ${severityTag}`,
+    `━━━━━━━━━━━━━━━━━━━━━`,
+    ``,
+    `<b>${alert.agentName}</b>`,
+    `<code>${shortAddress(alert.address)}</code>`,
+    ``,
+    `${alert.message}`,
+  ].join("\n");
 }
 
 export function formatAlertSettings(
@@ -159,38 +250,66 @@ export function formatAlertSettings(
     threshold: string | null;
   }>
 ): string {
-  const labels: Record<string, { name: string; unit: string }> = {
-    low_balance: { name: "Low Balance", unit: "TON" },
-    large_tx: { name: "Large Transaction", unit: "TON" },
-    inactive: { name: "Inactive", unit: "hours" },
-    high_frequency: { name: "High Frequency", unit: "txns/hour" },
-    new_contract: { name: "New Contract", unit: "" },
-    balance_drop: { name: "Balance Drop", unit: "%" },
+  const labels: Record<string, { name: string; icon: string; unit: string }> = {
+    low_balance: { name: "Low Balance", icon: "🪫", unit: "TON" },
+    large_tx: { name: "Large TX", icon: "💸", unit: "TON" },
+    inactive: { name: "Inactive", icon: "💤", unit: "hours" },
+    high_frequency: { name: "High Frequency", icon: "⚡", unit: "txns/h" },
+    new_contract: { name: "New Contract", icon: "🆕", unit: "" },
+    balance_drop: { name: "Balance Drop", icon: "📉", unit: "%" },
   };
 
-  let text = "<b>Alert Settings</b>\n\nTap to toggle on/off:\n";
+  const lines: string[] = [
+    `🔔 <b>Alert Settings</b>`,
+    ``,
+    `<i>Tap buttons to toggle on/off:</i>`,
+    ``,
+  ];
+
   for (const s of settings) {
     const label = labels[s.alert_type] || {
       name: s.alert_type,
+      icon: "🔔",
       unit: "",
     };
-    const status = s.enabled ? "✅" : "❌";
+    const status = s.enabled ? "✅ ON " : "❌ OFF";
     let threshold = "";
     if (s.threshold && label.unit) {
-      if (
-        s.alert_type === "low_balance" ||
-        s.alert_type === "large_tx"
-      ) {
-        threshold = ` (${formatTon(s.threshold)} ${label.unit})`;
+      if (s.alert_type === "low_balance" || s.alert_type === "large_tx") {
+        threshold = `  ·  ${formatTon(s.threshold)} ${label.unit}`;
       } else if (s.alert_type === "inactive") {
-        const hours = parseInt(s.threshold, 10) / 3600;
-        threshold = ` (${hours}h)`;
+        threshold = `  ·  ${parseInt(s.threshold, 10) / 3600}h`;
       } else {
-        threshold = ` (${s.threshold} ${label.unit})`;
+        threshold = `  ·  ${s.threshold} ${label.unit}`;
       }
     }
-    text += `\n${status} ${label.name}${threshold}`;
+    lines.push(`${label.icon} ${label.name}:  ${status}${threshold}`);
   }
 
-  return text;
+  return lines.join("\n");
+}
+
+// ─── WATCH CONFIRMATIONS ─────────────────────────────
+
+export function formatWatchSuccess(name: string, address: string): string {
+  return [
+    `✅ <b>Agent Added</b>`,
+    ``,
+    `<b>${name}</b>`,
+    `<code>${address}</code>`,
+    ``,
+    `Now monitoring in real-time.`,
+    `You'll receive alerts for this agent.`,
+  ].join("\n");
+}
+
+export function formatUnwatchSuccess(name: string, address: string): string {
+  return [
+    `🗑 <b>Agent Removed</b>`,
+    ``,
+    `<b>${name}</b>`,
+    `<code>${shortAddress(address)}</code>`,
+    ``,
+    `Monitoring stopped.`,
+  ].join("\n");
 }
