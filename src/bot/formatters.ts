@@ -57,8 +57,6 @@ export function formatStart(): string {
     `Real-time monitoring of AI agents`,
     `on the TON blockchain.`,
     ``,
-    `━━━━━━━━━━━━━━━━━━━━━`,
-    ``,
     `👇 Use the menu below to get started.`,
     `Add your first agent to begin monitoring.`,
   ].join("\n");
@@ -162,7 +160,6 @@ export function formatStatus(
 
   if (recentTxns.length > 0) {
     lines.push(``);
-    lines.push(`━━━━━━━━━━━━━━━━━━━━━`);
     lines.push(`📜 <b>Recent Transactions</b>`);
     lines.push(``);
     for (const tx of recentTxns.slice(0, 5)) {
@@ -232,9 +229,7 @@ export function formatAlert(alert: Alert): string {
     alert.severity === "critical" ? "🔴 CRITICAL" : "⚠️ WARNING";
 
   return [
-    `━━━━━━━━━━━━━━━━━━━━━`,
     `${icon} <b>ALERT</b>  ·  ${severityTag}`,
-    `━━━━━━━━━━━━━━━━━━━━━`,
     ``,
     `<b>${alert.agentName}</b>`,
     `<code>${shortAddress(alert.address)}</code>`,
