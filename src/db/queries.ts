@@ -47,7 +47,7 @@ export class Queries {
       .prepare(
         "INSERT OR REPLACE INTO agents (user_id, address, raw_address, name, added_at) VALUES (?, ?, ?, ?, unixepoch())"
       )
-      .run(userId, address, rawAddress ?? null, name);
+      .run(userId, address, rawAddress?.toLowerCase() ?? null, name);
 
     // Init default alert settings for this user
     for (const alert of Object.values(ALERT_TYPES)) {
@@ -73,9 +73,10 @@ export class Queries {
   }
 
   getAgent(userId: number, address: string): Agent | undefined {
+    const addr = address.toLowerCase();
     return this.db
-      .prepare("SELECT * FROM agents WHERE user_id = ? AND address = ?")
-      .get(userId, address) as Agent | undefined;
+      .prepare("SELECT * FROM agents WHERE user_id = ? AND (address = ? OR raw_address = ? OR address = ? OR raw_address = ?)")
+      .get(userId, address, addr, addr, address) as Agent | undefined;
   }
 
   getAllWatchedAddresses(): string[] {
@@ -86,22 +87,25 @@ export class Queries {
   }
 
   getUsersWatchingAddress(address: string): number[] {
+    const addr = address.toLowerCase();
     const rows = this.db
-      .prepare("SELECT DISTINCT user_id FROM agents WHERE address = ? OR raw_address = ?")
-      .all(address, address) as { user_id: number }[];
+      .prepare("SELECT DISTINCT user_id FROM agents WHERE address = ? OR raw_address = ? OR address = ? OR raw_address = ?")
+      .all(address, addr, addr, address) as { user_id: number }[];
     return rows.map((r) => r.user_id);
   }
 
   updateBalance(address: string, balanceNano: string): void {
+    const addr = address.toLowerCase();
     this.db
-      .prepare("UPDATE agents SET balance_nano = ? WHERE address = ? OR raw_address = ?")
-      .run(balanceNano, address, address);
+      .prepare("UPDATE agents SET balance_nano = ? WHERE address = ? OR raw_address = ? OR address = ? OR raw_address = ?")
+      .run(balanceNano, address, addr, addr, address);
   }
 
   updateLastActive(address: string, timestamp: number): void {
+    const addr = address.toLowerCase();
     this.db
-      .prepare("UPDATE agents SET last_active = ? WHERE address = ? OR raw_address = ?")
-      .run(timestamp, address, address);
+      .prepare("UPDATE agents SET last_active = ? WHERE address = ? OR raw_address = ? OR address = ? OR raw_address = ?")
+      .run(timestamp, address, addr, addr, address);
   }
 
   addTransaction(
@@ -274,11 +278,30 @@ export class Queries {
     return row.count;
   }
 
+  backfillRawAddress(rawAddress: string): void {
+    const addr = rawAddress.toLowerCase();
+    // We matched this raw address to some agents via getUsersWatchingAddress.
+    // If those agents have empty raw_address, fill it in.
+    // This only affects agents whose raw_address we haven't stored yet.
+    this.db
+      .prepare(
+        `UPDATE agents SET raw_address = ?
+         WHERE (raw_address IS NULL OR raw_address = '')
+         AND id IN (
+           SELECT id FROM agents
+           WHERE raw_address IS NULL OR raw_address = ''
+           LIMIT 100
+         )`
+      )
+      .run(addr);
+  }
+
   resolveAddress(address: string): string {
     // If given a raw address (0:hex), look up the friendly address
+    const addr = address.toLowerCase();
     const row = this.db
-      .prepare("SELECT address FROM agents WHERE raw_address = ? LIMIT 1")
-      .get(address) as { address: string } | undefined;
+      .prepare("SELECT address FROM agents WHERE raw_address = ? OR raw_address = ? LIMIT 1")
+      .get(address, addr) as { address: string } | undefined;
     return row ? row.address : address;
   }
 }

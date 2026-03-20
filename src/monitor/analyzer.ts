@@ -14,12 +14,13 @@ export class TransactionAnalyzer {
   async processTransaction(
     tx: ToncenterTransaction
   ): Promise<{ alerts: Alert[]; userIds: number[] }> {
-    const address = tx.account;
+    const address = tx.account; // raw format from WebSocket (0:HEX)
     const userIds = this.queries.getUsersWatchingAddress(address);
 
     if (userIds.length === 0) {
       return { alerts: [], userIds: [] };
     }
+
 
     // Determine direction and counterparty
     const { direction, counterparty, amount } = parseTxDetails(tx, address);
@@ -89,6 +90,9 @@ export class TransactionAnalyzer {
       };
 
       const alerts = evaluateAllRules(ctx);
+      if (alerts.length > 0) {
+        console.log(`[Analyzer] ${alerts.length} alert(s) for user ${userId}: ${alerts.map(a => a.type).join(", ")}`);
+      }
       allAlerts.push(...alerts);
     }
 

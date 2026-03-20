@@ -26,6 +26,27 @@ export interface AccountInfo {
   raw_address: string;
 }
 
+/**
+ * Convert user-friendly TON address (EQ.../UQ...) to raw format (0:hex)
+ * User-friendly = base64url(1 byte flag + 1 byte workchain + 32 bytes hash + 2 bytes crc)
+ */
+export function friendlyToRaw(address: string): string | null {
+  try {
+    // Normalize base64url to base64
+    let b64 = address.replace(/-/g, "+").replace(/_/g, "/");
+    while (b64.length % 4 !== 0) b64 += "=";
+
+    const bytes = Buffer.from(b64, "base64");
+    if (bytes.length !== 36) return null;
+
+    const workchain = bytes[1] === 0xff ? -1 : bytes[1];
+    const hash = bytes.subarray(2, 34).toString("hex");
+    return `${workchain}:${hash}`;
+  } catch {
+    return null;
+  }
+}
+
 export async function getAccountInfo(address: string): Promise<AccountInfo> {
   const url = `${TONCENTER_HTTP_URL}/account?address=${encodeURIComponent(address)}`;
   const response = await fetch(url, { headers: headers() });
@@ -52,6 +73,6 @@ export async function getAccountInfo(address: string): Promise<AccountInfo> {
     status: data.status || "unknown",
     last_activity: data.last_activity || 0,
     is_wallet: isWallet,
-    raw_address: data.address || "",
+    raw_address: friendlyToRaw(address) || data.address || "",
   };
 }
