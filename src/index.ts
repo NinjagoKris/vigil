@@ -75,6 +75,25 @@ async function drainAlertQueue(): Promise<void> {
   alertDraining = false;
 }
 
+// ── Alert cooldown: same alert type + address max once per 60s ──
+const alertCooldown = new Map<string, number>();
+const ALERT_COOLDOWN_MS = 60000;
+
+function shouldSendAlert(alert: { type: string; address: string }): boolean {
+  const key = `${alert.type}:${alert.address}`;
+  const now = Date.now();
+  const lastSent = alertCooldown.get(key) || 0;
+  if (now - lastSent < ALERT_COOLDOWN_MS) return false;
+  alertCooldown.set(key, now);
+  // Prune old entries
+  if (alertCooldown.size > 1000) {
+    for (const [k, v] of alertCooldown) {
+      if (now - v > ALERT_COOLDOWN_MS) alertCooldown.delete(k);
+    }
+  }
+  return true;
+}
+
 // ── Handle incoming transactions from WebSocket ─────
 stream.on(
   "transaction",
@@ -83,6 +102,7 @@ stream.on(
       const { alerts, userIds } = await analyzer.processTransaction(tx);
 
       for (const alert of alerts) {
+        if (!shouldSendAlert(alert)) continue;
         const message = formatAlert(alert);
         for (const userId of userIds) {
           enqueueAlert(userId, message);
