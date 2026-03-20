@@ -1,160 +1,124 @@
-<div align="center">
-
-<img src="vigil.png" alt="Vigil" width="200" />
+<img src="vigil.png" alt="Vigil" width="120" />
 
 # Vigil
 
-**Never sleep on your agents**
+*Never sleep on your agents.*
 
-Real-time monitoring of AI agents on TON blockchain via Telegram
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![TON](https://img.shields.io/badge/TON-Mainnet-0088CC?logo=ton&logoColor=white)](#)
-[![MCP](https://img.shields.io/badge/MCP-6%20tools-blueviolet)](#mcp-server)
-
-</div>
+[![CI](https://github.com/NinjagoKris/vigil/actions/workflows/ci.yml/badge.svg)](https://github.com/NinjagoKris/vigil/actions)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Telegram Bot](https://img.shields.io/badge/telegram-@VigilTONBot-26A5E4?logo=telegram&logoColor=white)](https://t.me/VigilTONBot)
 
 ---
 
-## What is Vigil?
+Vigil watches your AI agents on TON so you don't have to.
+Add a wallet address, get instant alerts when something's off. That's it.
 
-Vigil is a Telegram bot that monitors AI agent wallets on the TON blockchain in real-time. It uses the **Toncenter Streaming API v2** (WebSocket) for instant transaction notifications — no polling, no delays.
+It connects to the [Toncenter Streaming API v2](https://toncenter.com/) over a single WebSocket — no polling, no delays, up to 500 wallets at once. Alerts hit your Telegram within seconds of block finalization.
 
-Track balances, get alerts on suspicious activity, and view dashboards — all from Telegram. Monitor up to 500 agent wallets on a single WebSocket connection. Also includes an **MCP server** for integration with AI assistants.
+## 🚀 Try it now
 
-## Try it now
+**[@VigilTONBot](https://t.me/VigilTONBot)** — open the bot, send `/watch <address> <name>`, done. No setup, no API keys.
 
-[@VigilTONBot](https://t.me/VigilTONBot)
+## 💬 Commands
 
-Open the bot → `/watch <address> <name>` → done.
-No setup, no installation, no API keys needed.
-
-## Bot Commands
-
-| Command | Description |
+| Command | What it does |
 |---------|-------------|
-| `/start` | Welcome message and instructions |
-| `/watch <address> <name>` | Add an agent to monitor |
-| `/unwatch <address>` | Remove an agent |
-| `/list` | List your agents with balances |
-| `/status <address>` | Detailed agent status |
-| `/alerts` | Configure alert settings |
-| `/dashboard` | Overview of all agents |
+| `/start` | Shows welcome + menu buttons |
+| `/watch <address> <name>` | Start monitoring an agent |
+| `/unwatch <address>` | Stop monitoring |
+| `/list` | Your agents with balances |
+| `/status <address>` | Deep dive into one agent |
+| `/dashboard` | Everything at a glance |
 | `/history <address>` | Last 20 transactions |
+| `/alerts` | Toggle & configure alerts |
 
-## Alert Types
+Everything is navigable via inline buttons — you rarely need to type commands after `/start`.
 
-| Alert | Default Threshold | Description |
-|-------|-------------------|-------------|
-| **Low Balance** | 0.05 TON | Balance below threshold |
-| **Large Transaction** | 1 TON | Single transaction exceeds threshold |
-| **Inactive** | 24 hours | No activity for specified duration |
-| **High Frequency** | 50 txns/hour | Unusual transaction volume |
-| **New Contract** | — | Interaction with previously unseen contract |
-| **Balance Drop** | 50% | Balance dropped significantly within 1 hour |
+## 🔔 Alerts
 
-All alerts are configurable via `/alerts` with inline buttons.
+Six built-in alert types, all configurable with inline buttons:
 
-## Architecture
+| Type | Default | Fires when... |
+|------|---------|--------------|
+| 🪫 Low Balance | < 0.05 TON | Agent is running out of funds |
+| 💸 Large TX | > 1 TON | Big transfer in or out |
+| 💤 Inactive | > 24h | Agent hasn't done anything |
+| ⚡ High Frequency | > 50/hour | Suspicious burst of activity |
+| 🆕 New Contract | — | Agent talks to an unknown contract |
+| 📉 Balance Drop | > 50%/hour | Rapid balance decrease |
 
-```
-┌──────────────┐     ┌────────────────────┐     ┌──────────────┐
-│   Telegram   │◄────│     Vigil Bot       │────►│   SQLite DB  │
-│    Users     │     │    (grammY)         │     │              │
-└──────────────┘     └────────┬───────────┘     └──────────────┘
-                              │                        ▲
-                     ┌────────▼───────────┐            │
-                     │  Transaction       │────────────┘
-                     │  Analyzer          │
-                     └────────┬───────────┘
-                              │
-                     ┌────────▼───────────┐     ┌──────────────┐
-                     │  WebSocket Stream  │◄────│  Toncenter   │
-                     │  (Streaming v2)    │     │  Streaming   │
-                     └────────────────────┘     │  API v2      │
-                                                └──────────────┘
+## 🏗 How it works
 
-                     ┌────────────────────┐
-                     │  MCP Server        │ ← AI assistants
-                     │  (stdio/HTTP)      │
-                     └────────────────────┘
-```
+**Telegram bot** (grammY) handles user interaction — commands, inline buttons, alert delivery.
 
-### Stack
+**WebSocket stream** stays connected to Toncenter Streaming API v2 and receives finalized transactions in real-time for all watched addresses.
 
-- **[grammY](https://grammy.dev/)** — Telegram bot framework
-- **[ws](https://github.com/websockets/ws)** — WebSocket client
-- **[better-sqlite3](https://github.com/WiseLibs/better-sqlite3)** — SQLite driver
-- **[@modelcontextprotocol/sdk](https://github.com/modelcontextprotocol/sdk)** — MCP server
+**Analyzer** parses each transaction, stores it in SQLite, checks alert rules, and fires notifications to watching users.
 
-## Self-Hosted
+**MCP server** exposes the same data to AI assistants via Model Context Protocol.
 
-Want to run your own instance? Follow these steps.
+Stack: TypeScript, grammY, ws, better-sqlite3, @modelcontextprotocol/sdk.
 
-### 1. Clone and install
+## 🖥 Self-Hosted
+
+Want to run your own instance:
 
 ```bash
 git clone https://github.com/NinjagoKris/vigil.git
 cd vigil
 npm install
-```
-
-### 2. Configure
-
-```bash
 cp .env.example .env
 ```
 
-Edit `.env`:
+Fill in `.env`:
 ```
 BOT_TOKEN=your_telegram_bot_token
 TONCENTER_API_KEY=your_toncenter_api_key
 ```
 
-Get a bot token from [@BotFather](https://t.me/BotFather).
-Get a Toncenter API key from [toncenter.com](https://toncenter.com/).
-
-### 3. Run
+Get a bot token from [@BotFather](https://t.me/BotFather). Get a Toncenter key from [toncenter.com](https://toncenter.com/).
 
 ```bash
-npm run dev    # Development with hot reload
-npm start      # Production
-npm run mcp    # Start MCP server (stdio)
+npm run dev    # dev with hot reload
+npm start      # production
+npm test       # run tests
+npm run mcp    # MCP server (stdio)
 ```
 
-### Directory Structure
+<details>
+<summary>📂 Project structure</summary>
 
 ```
 src/
-├── index.ts           — App bootstrap
+├── index.ts           — bootstrap
 ├── bot/
-│   ├── commands.ts    — Telegram command handlers
-│   ├── alerts.ts      — Alert settings UI
-│   └── formatters.ts  — Message formatting
+│   ├── commands.ts    — command handlers + inline buttons
+│   ├── alerts.ts      — alert settings keyboard
+│   └── formatters.ts  — message formatting
 ├── monitor/
-│   ├── stream.ts      — WebSocket connection
-│   ├── analyzer.ts    — Transaction processing
-│   └── rules.ts       — Alert rule engine
+│   ├── stream.ts      — WebSocket to Toncenter
+│   ├── analyzer.ts    — transaction processing
+│   └── rules.ts       — alert rule engine
 ├── mcp/
-│   └── server.ts      — MCP stdio/HTTP server
+│   └── server.ts      — MCP stdio server
 ├── db/
-│   ├── schema.ts      — Database schema
-│   └── queries.ts     — Query layer
+│   ├── schema.ts      — SQLite schema
+│   └── queries.ts     — data access layer
 └── ton/
-    └── client.ts      — HTTP fallback
+    └── client.ts      — HTTP balance fallback
 ```
 
-## MCP Server
+</details>
 
-Vigil includes an MCP (Model Context Protocol) server for AI assistant integration.
+## 🤖 MCP Server
 
-### Stdio Transport
+For AI agent developers — Vigil exposes tools via [Model Context Protocol](https://modelcontextprotocol.io):
 
 ```bash
 npm run mcp
 ```
 
-Add to your MCP client config:
+Add to your client config:
 
 ```json
 {
@@ -168,31 +132,16 @@ Add to your MCP client config:
 }
 ```
 
-### Available Tools
+**Tools:** `watch_agent`, `unwatch_agent`, `list_agents`, `get_agent_status`, `get_agent_history`, `get_alerts`
 
-| Tool | Description |
-|------|-------------|
-| `watch_agent(address, name)` | Add agent to monitoring |
-| `unwatch_agent(address)` | Remove agent |
-| `list_agents()` | List all monitored agents |
-| `get_agent_status(address)` | Detailed agent status |
-| `get_agent_history(address, limit)` | Transaction history |
-| `get_alerts()` | Current alert settings |
+## 🔒 Security
 
-## Security
-
-- **Read-only monitoring** — Vigil never stores or handles private keys
-- **No hardcoded secrets** — all credentials via environment variables
-- **SQLite excluded from git** — `.gitignore` covers `*.db` and `.env`
+- Read-only — never stores or touches private keys
+- No hardcoded secrets — everything via `process.env`
+- DB and `.env` excluded from git
 
 ---
 
-<div align="center">
-
 Built for the [TON AI Agent Hackathon 2026](https://identityhub.app/contests/ai-hackathon) — User-Facing AI Agents Track
 
-Powered by [Toncenter Streaming API v2](https://toncenter.com/)
-
-MIT License
-
-</div>
+Powered by [Toncenter Streaming API v2](https://toncenter.com/) · MIT License

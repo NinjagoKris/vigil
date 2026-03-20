@@ -87,7 +87,7 @@ export class TransactionAnalyzer {
     this.queries.updateBalance(address, balanceNano);
   }
 
-  private parseTxDetails(
+  parseTxDetails(
     tx: ToncenterTransaction,
     watchedAddress: string
   ): {
@@ -95,41 +95,55 @@ export class TransactionAnalyzer {
     counterparty: string | null;
     amount: string;
   } {
-    // Check incoming message
-    if (tx.in_msg && tx.in_msg.value && tx.in_msg.value !== "0") {
-      if (tx.in_msg.destination === watchedAddress || tx.in_msg.destination?.includes(watchedAddress.replace("0:", ""))) {
-        return {
-          direction: "in",
-          counterparty: tx.in_msg.source || null,
-          amount: tx.in_msg.value,
-        };
-      }
-    }
-
-    // Check outgoing messages
-    if (tx.out_msgs && tx.out_msgs.length > 0) {
-      let totalOut = 0n;
-      let lastDest: string | null = null;
-      for (const msg of tx.out_msgs) {
-        if (msg.value && msg.value !== "0") {
-          totalOut += BigInt(msg.value);
-          lastDest = msg.destination || null;
-        }
-      }
-      if (totalOut > 0n) {
-        return {
-          direction: "out",
-          counterparty: lastDest,
-          amount: totalOut.toString(),
-        };
-      }
-    }
-
-    // Fallback: use fee as amount if no value transfer
-    return {
-      direction: "out",
-      counterparty: null,
-      amount: tx.fee || "0",
-    };
+    return parseTxDetails(tx, watchedAddress);
   }
+}
+
+export function parseTxDetails(
+  tx: ToncenterTransaction,
+  watchedAddress: string
+): {
+  direction: "in" | "out";
+  counterparty: string | null;
+  amount: string;
+} {
+  // Check incoming message
+  if (tx.in_msg && tx.in_msg.value && tx.in_msg.value !== "0") {
+    if (
+      tx.in_msg.destination === watchedAddress ||
+      tx.in_msg.destination?.includes(watchedAddress.replace("0:", ""))
+    ) {
+      return {
+        direction: "in",
+        counterparty: tx.in_msg.source || null,
+        amount: tx.in_msg.value,
+      };
+    }
+  }
+
+  // Check outgoing messages
+  if (tx.out_msgs && tx.out_msgs.length > 0) {
+    let totalOut = 0n;
+    let lastDest: string | null = null;
+    for (const msg of tx.out_msgs) {
+      if (msg.value && msg.value !== "0") {
+        totalOut += BigInt(msg.value);
+        lastDest = msg.destination || null;
+      }
+    }
+    if (totalOut > 0n) {
+      return {
+        direction: "out",
+        counterparty: lastDest,
+        amount: totalOut.toString(),
+      };
+    }
+  }
+
+  // Fallback: use fee as amount if no value transfer
+  return {
+    direction: "out",
+    counterparty: null,
+    amount: tx.fee || "0",
+  };
 }
